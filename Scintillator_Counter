@@ -1,0 +1,91 @@
+#define TESTING  // Toggle this OFF when hardware is connected
+
+#include <Arduino.h>
+#ifndef TESTING
+#include <ADC.h>  // Real Teensy ADC library
+ADC *adc = new ADC();
+#endif
+
+// ======================== CONFIGURABLE SYSTEM VALUES ======================== //
+const int ADC_PINS[6] = {39, 41, 14, 16, 18, 20};  // A15, A17, A0, A2, A4, A6
+const int PEAK_THRESHOLD[6] = {1000, 1000, 1000, 1000, 1000, 1000};
+
+// ========================== STATE TRACKING VARIABLES ======================== //
+volatile uint32_t hitTimes[6] = {0};
+volatile int hitValues[6] = {0};
+volatile bool hitDetected[6] = {false};
+
+#if TESTING
+// Inject fake ADC values here for testing!
+int testADCValues[6] = {900, 1050, 800, 1200, 999, 1500};  // Example simulation
+#endif
+
+// =============== HOOK: Replaceable ADC read logic ======================== //
+int readADC(int pin, int index) {
+#if TESTING
+    return testADCValues[index];
+#else
+    return adc->analogRead(pin);
+#endif
+}
+
+// ========================== FUNCTION: ADC SCANNING ========================== //
+void checkHits() {
+    uint32_t currentTime = micros();
+
+    for (int i = 0; i < 6; i++) {
+        int adcValue = readADC(ADC_PINS[i], i);  // HOOK USED HERE
+
+        if (adcValue > PEAK_THRESHOLD[i]) {
+            hitTimes[i] = currentTime;
+            hitValues[i] = adcValue;
+            hitDetected[i] = true;
+        }
+    }
+}
+
+// ========================== FUNCTION: INITIAL SETUP ======================== //
+void setup() {
+    Serial.begin(115200);
+#if !TESTING
+    for (int i = 0; i < 6; i++) {
+        pinMode(ADC_PINS[i], INPUT);
+        adc->adc0->setAveraging(16);
+        adc->adc0->setResolution(12);
+        adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED);
+        adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED);
+        adc->adc1->setAveraging(16);
+        adc->adc1->setResolution(12);
+        adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED);
+        adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED);
+    }
+#endif
+
+    Serial.println("🧪 Test Mode: Scintillator hit detection logic initialization complete");
+}
+
+// ============================= FUNCTION: MAIN LOOP ============================= //
+void loop() {
+    checkHits();
+
+    for (int i = 0; i < 6; i++) {
+        if (hitDetected[i]) {
+            Serial.print("[TEST] Hit on Layer ");
+            Serial.print(i + 1);
+            Serial.print(" | Time: ");
+            Serial.print(hitTimes[i]);
+            Serial.print(" µs | ADC: ");
+            Serial.println(hitValues[i]);
+            hitDetected[i] = false;
+        }
+    }
+
+#if TESTING
+    delay(2000);  // Simulate time between events
+    // Mutate test values here for multiple test cycles
+    testADCValues[1] = random(800, 1600);  // Fake pulse
+    testADCValues[3] = random(800, 1600);
+#else
+    delay(1);  // Real loop runs fast
+#endif
+}
