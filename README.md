@@ -1,5 +1,4 @@
 # aeris-sees-software
-
 ## Brief Overview
 This repository contains the software for the **SEEs Payload** (Solar Energetic Events detector).  
 The SEEs detector uses a four-layer scintillator stack (3× EJ212 plastic scintillators and 1× BGO crystal) read out by SiPMs. Signals are digitized and processed by an FPGA, which applies thresholds, coincidence logic, and energy binning.  
@@ -24,11 +23,11 @@ The Teensy 4.1 microcontroller handles communication with the FPGA, performs tel
    * Bottom-left → click the right-arrow (→).
    * Teensy Loader CLI will handle flashing.
 8. Open the serial monitor:
-   ```bash
+   bash
    pio device monitor -b 115200
 to view telemetry output.
 
-**Getting Data**
+## Getting Data
 
 The FPGA performs coincidence detection and energy binning, outputting event counts and timing data.
 The Teensy receives these FPGA packets, validates them with CRC, attaches sequence numbers and timestamps, and formats telemetry packets (1024B frames).
@@ -46,12 +45,15 @@ SEEs Integration test starting...
 5416 | 94 80 26 96 | Coinc: 1 | Flags: 0
 ...
 
-**Critical Path**
-[x] Teensy development environment set up (PlatformIO, serial monitor working)
-[x] Basic packet struct defined in software
-[x] Teensy can simulate and stream test packets
-[ ]Implement FPGA → Teensy data interface (UART/SPI)
-[ ]Verify CRC handling on real FPGA packets
-[ ]Format telemetry packets to 1024B + CRC
-[ ]Integrate watchdog + heartbeat
-[ ]Validate full OBC handoff in system tests
+### Critical Path
+- [x] Teensy development environment set up (PlatformIO, serial monitor working)
+- [x] Basic packet struct defined in software
+- [x] Teensy can simulate and stream test packets
+- [ ]Implement FPGA → Teensy data interface (UART/SPI)
+- [ ]Verify CRC handling on real FPGA packets
+- [ ]Format telemetry packets to 1024B + CRC
+- [ ]Integrate watchdog + heartbeat
+- [ ] ...
+- [ ] ...
+- [ ] ...
+- [ ]Validate full OBC handoff in system tests
