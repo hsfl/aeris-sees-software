@@ -30,3 +30,23 @@
 *.exe
 *.out
 *.app
+
+# PlatformIO build folder and cache
+.pio/
+.sconsign*
+project.checksum
+*.dblite
+*.json
+compile_commands.json
+ide*.json
+
+# Teensy build outputs
+*.elf
+*.hex
+*.bin
+*.lst
+*.map
+
+# VSCode environment configs (keep settings.json if you use it)
+.vscode/
+!.vscode/settings.json
