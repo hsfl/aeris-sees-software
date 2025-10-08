@@ -49,11 +49,11 @@ SEEs Integration test starting...
 - [x] Teensy development environment set up (PlatformIO, serial monitor working)
 - [x] Basic packet struct defined in software
 - [x] Teensy can simulate and stream test packets
-- [ ]Implement FPGA → Teensy data interface (UART/SPI)
-- [ ]Verify CRC handling on real FPGA packets
-- [ ]Format telemetry packets to 1024B + CRC
-- [ ]Integrate watchdog + heartbeat
+- [ ] Implement FPGA → Teensy data interface (UART/SPI)
+- [ ] Verify CRC handling on real FPGA packets
+- [ ] Format telemetry packets to 1024B + CRC
+- [ ] Integrate watchdog + heartbeat
 - [ ] ...
 - [ ] ...
 - [ ] ...
-- [ ]Validate full OBC handoff in system tests
+- [ ] Validate full OBC handoff in system tests
