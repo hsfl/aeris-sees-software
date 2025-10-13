@@ -1,9 +1,10 @@
 /**
  * @file SEEs.cpp
- * @brief Implementation of SEEs payload logic for FPGA-based event acquisition.
+ * @brief Implementation of SEEs payload logic for histogram-based FPGA data acquisition.
  *
- * Handles FPGA communication, telemetry packet construction, and UART transmission.
- * Adheres to AERIS flight software communication conventions and VIA documentation style.
+ * Handles SPI communication, telemetry packet construction, and UART transmission.
+ * Each histogram frame represents one integration window containing particle counts
+ * binned by energy and detector layer.
  */
 
 #include "SEEs.hpp"
@@ -23,11 +24,11 @@ SEEs::SEEs(uint8_t csPin)
  * @brief Initialize serial link and FPGA communication.
  */
 void SEEs::begin() {
-    Serial.begin(115200);       // UART → Dock/OBC
-    fpga.begin();               // Initialize SPI bus and FPGA
+    Serial.begin(115200);     // UART → Dock/OBC
+    fpga.begin();             // Initialize SPI bus and FPGA
     delay(250);
 
-    Serial.println("[SEEs] ✅ FPGA interface initialized.");
+    Serial.println("[SEEs] ✅ Histogram FPGA interface initialized.");
 }
 
 // ============================================================================
@@ -35,15 +36,15 @@ void SEEs::begin() {
 // ============================================================================
 
 /**
- * @brief Poll FPGA for events and forward valid detections as telemetry.
+ * @brief Poll FPGA for histogram frames and forward valid data as telemetry.
  *
- * The FPGA performs real-time coincidence logic between detector layers.
- * When an event is detected, it is stored in an internal FIFO. This routine
- * reads from that FIFO, builds a minimal telemetry packet, and transmits it
- * to the Dock/OBC.
+ * Each call retrieves one histogram from the FPGA, which represents the accumulated
+ * counts for all detector layers and energy bins during the last integration window.
+ * The histogram is formatted into a compact telemetry packet and transmitted to
+ * the Dock/OBC over UART.
  */
 void SEEs::update() {
-    if (fpga.getEvent(currentEvent) && currentEvent.valid) {
+    if (fpga.getHistogram(currentFrame) && currentFrame.valid) {
         buildTelemetry();
         sendTelemetry();
     }
@@ -54,23 +55,42 @@ void SEEs::update() {
 // ============================================================================
 
 /**
- * @brief Construct a small telemetry packet from the current event.
+ * @brief Construct a telemetry packet from the histogram data.
  *
- * The packet uses a lightweight binary framing format:
- *  [0xBE][layer_mask][energy_bin][timestamp (4 bytes)][0xEF]
+ * The packet uses a simplified binary framing structure:
+ *  [0xBE]                 → Start byte
+ *  [Layer × Bin counts]   → 4×8×2B = 64 bytes
+ *  [timestamp (4B)]       → Integration window end
+ *  [0xEF]                 → End byte
+ *
+ * The resulting packet (~70 bytes) is compatible with AERIS telemetry standards.
  */
 void SEEs::buildTelemetry() {
     memset(packet, 0, sizeof(packet));
-    packet[0] = 0xBE;
-    packet[1] = currentEvent.layer_mask;
-    packet[2] = currentEvent.energy_bin;
-    memcpy(&packet[3], &currentEvent.timestamp, sizeof(uint32_t));
-    packet[7] = 0xEF;
+    int idx = 0;
+
+    packet[idx++] = 0xBE;  // Start marker
+
+    // Flatten 2D histogram into linear stream
+    for (int layer = 0; layer < 4; ++layer) {
+        for (int bin = 0; bin < 8; ++bin) {
+            uint16_t count = currentFrame.counts[layer][bin];
+            packet[idx++] = count & 0xFF;
+            packet[idx++] = (count >> 8) & 0xFF;
+        }
+    }
+
+    // Timestamp (little-endian)
+    memcpy(&packet[idx], &currentFrame.timestamp, sizeof(uint32_t));
+    idx += sizeof(uint32_t);
+
+    packet[idx++] = 0xEF;  // End marker
 }
 
 /**
  * @brief Send the telemetry packet via UART.
  */
 void SEEs::sendTelemetry() {
-    Serial.write(packet, 8);
+    Serial.write(packet, 70);
+    Serial.flush();
 }

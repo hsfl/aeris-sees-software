@@ -2,9 +2,8 @@
  * @file main.cpp
  * @brief Entry point for SEEs payload firmware.
  *
- * Initializes the SEEs payload driver and continuously polls the FPGA
- * for new events. Follows the same control flow and style conventions as
- * the VIA (AvaSpec) firmware.
+ * Initializes the SEEs histogram driver and continuously polls the FPGA
+ * for new histogram data. Mirrors VIA (AvaSpec) firmware control flow.
  */
 
 #include "SEEs.hpp"
@@ -26,14 +25,14 @@ SEEs sees(FPGA_CS_PIN);
 // ============================================================================
 
 /**
- * @brief System setup. Initializes all peripherals.
+ * @brief System setup. Initializes serial link and FPGA communication.
  */
 void setup() {
     sees.begin();
 }
 
 /**
- * @brief Main execution loop. Polls FPGA and transmits events.
+ * @brief Main execution loop. Polls FPGA and transmits histograms each cycle.
  */
 void loop() {
     sees.update();

@@ -2,15 +2,16 @@
  * @file SEEs.hpp
  * @brief Science payload firmware driver for the Solar Energetic Events (SEEs) instrument.
  *
- * This module defines the SEEs payload class used to interface with the FPGA-based
- * event coincidence logic and transmit formatted telemetry to the Dock/OBC.
+ * The SEEs system uses an FPGA front-end to accumulate histograms of particle detections
+ * across multiple scintillator layers and energy bins over fixed integration periods.
+ * The Teensy serves as the supervisory controller responsible for:
+ *  - Initializing communication with the FPGA
+ *  - Retrieving histogram frames each integration cycle
+ *  - Packaging the data into AERIS-compliant telemetry frames
+ *  - Forwarding them to the Dock/OBC via UART
  *
- * The SEEs system measures coincident scintillation events across multiple detector layers
- * using a custom FPGA front-end. The Teensy acts as the supervisory controller:
- *  - Initializes communication with the FPGA
- *  - Retrieves event data packets
- *  - Packages them into mission telemetry frames
- *  - Forwards them upstream to the AERIS OBC
+ * This code mirrors the structural and commenting conventions of the VIA (AvaSpec)
+ * payload firmware to maintain consistency across all AERIS instruments.
  *
  * @author  
  *  Alexander “Ander” Shultis  
@@ -26,11 +27,11 @@
 
 /**
  * @class SEEs
- * @brief High-level interface to the SEEs detector and FPGA logic.
+ * @brief High-level interface to the SEEs FPGA histogram system.
  *
- * Provides initialization, event acquisition, telemetry packetization, and UART
- * transmission. Mirrors the structure of the VIA (AvaSpec) firmware for consistency
- * across AERIS payloads.
+ * Provides initialization, histogram retrieval, telemetry packetization, and UART
+ * transmission functions. The class interfaces with the FPGA_Interface driver,
+ * ensuring clean modular separation between hardware and control logic.
  */
 class SEEs {
 public:
@@ -39,18 +40,18 @@ public:
     /** @brief Initialize UART and FPGA communication. */
     void begin();
 
-    /** @brief Poll FPGA for new events and handle telemetry dispatch. */
+    /** @brief Poll FPGA once per integration cycle and handle telemetry dispatch. */
     void update();
 
 private:
-    FPGA_Interface fpga;       ///< Interface driver for the FPGA co-processor
-    EventData currentEvent;    ///< Container for current event information
+    FPGA_Interface fpga;          ///< SPI interface to FPGA front-end
+    HistogramData  currentFrame;  ///< Latest histogram frame
 
-    /** @brief Build minimal telemetry payload for uplink. */
+    /** @brief Build telemetry packet from histogram data. */
     void buildTelemetry();
 
-    /** @brief Send prepared payload over UART to Dock/OBC. */
+    /** @brief Send constructed telemetry over UART to Dock/OBC. */
     void sendTelemetry();
 
-    uint8_t packet[64];        ///< Telemetry packet buffer
+    uint8_t packet[128];          ///< Telemetry packet buffer
 };

@@ -1,9 +1,9 @@
 /**
  * @file FPGA_Interface.hpp
- * @brief Low-level interface for communicating with the SEEs FPGA front-end.
+ * @brief SPI interface for SEEs FPGA histogram data acquisition.
  *
- * Provides SPI communication routines, event frame parsing, CRC verification,
- * and optional command transmission for configuration or diagnostics.
+ * The FPGA accumulates per-layer, per-energy counts over a fixed time window
+ * and transmits the full histogram once per integration cycle.
  */
 
 #pragma once
@@ -11,45 +11,40 @@
 #include <SPI.h>
 
 /**
- * @struct EventData
- * @brief Represents a single coincidence event reported by the FPGA.
+ * @struct HistogramData
+ * @brief Represents one complete histogram frame from the FPGA.
  */
-struct EventData {
-    uint32_t timestamp;   ///< Event timestamp (microseconds since boot)
-    uint8_t  layer_mask;  ///< Bitmask representing active detector layers
-    uint8_t  energy_bin;  ///< Quantized energy classification
-    bool     valid;       ///< True if CRC and frame sync are valid
+struct HistogramData {
+    uint16_t counts[4][8];  ///< [layer][energy_bin] counts
+    uint32_t timestamp;     ///< End-of-window timestamp (µs since boot)
+    bool     valid;         ///< True if CRC and sync word verified
 };
 
 /**
  * @class FPGA_Interface
- * @brief SPI-based communication driver for SEEs FPGA logic.
+ * @brief Handles SPI communication with SEEs FPGA histogram logic.
  */
 class FPGA_Interface {
 public:
     FPGA_Interface(uint8_t csPin, SPIClass &spiBus = SPI);
 
-    /** @brief Initialize SPI and associated control lines. */
+    /** @brief Initialize SPI and control lines. */
     void begin();
 
     /**
-     * @brief Retrieve one event record from the FPGA FIFO buffer.
-     * @param evt Reference to an EventData struct to populate.
-     * @return True if a valid event was received.
+     * @brief Retrieve a full histogram frame from the FPGA.
+     * @param hist Reference to a HistogramData struct to populate.
+     * @return True if valid data received.
      */
-    bool getEvent(EventData &evt);
+    bool getHistogram(HistogramData &hist);
 
     /**
-     * @brief Send configuration or control command to the FPGA.
-     * @param cmd  Command identifier.
-     * @param value 16-bit command value.
+     * @brief Send configuration command (e.g., integration period).
      */
     void sendCommand(uint8_t cmd, uint16_t value);
 
 private:
-    uint8_t _cs;          ///< Chip select pin
-    SPIClass *_spi;       ///< SPI bus instance pointer
-
-    /** @brief Simple XOR-based CRC. */
-    uint8_t calcCRC(const uint8_t *buf, size_t len);
+    uint8_t  _cs;
+    SPIClass *_spi;
+    uint8_t  calcCRC(const uint8_t *buf, size_t len);
 };
