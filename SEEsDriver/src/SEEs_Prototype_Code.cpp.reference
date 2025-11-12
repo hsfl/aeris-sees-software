@@ -1,0 +1,231 @@
+// Teensy 4.1 — SiPM Fast-Out ADC windowed counter + LED + CSV (Serial + SD)
+// COMMAND-BASED STREAMING MODE - For use with computer control scripts
+//
+// Commands:
+//   on   - Start collecting and streaming data
+//   off  - Stop collecting and streaming
+//   snap - Trigger capture (±2.5s window from CSV buffer)
+//
+// Columns: time_ms,voltage_V,hit,cum_counts
+// - LED (pin 13) blinks while collecting, solid when stopped
+// - Sample rate: 10 kS/s (SAMPLE_US = 100)
+// - CSV buffer: Rolling 30-second FIFO on SD card
+// - Designed for SEEs computer control interface (see COMPUTER_CONTROL.md)
+
+#include <Arduino.h>
+#include <SD.h>
+#include <SPI.h>
+
+// -------------------- User Config --------------------
+const int   LED_PIN        = 13;      // onboard LED
+const int   ADC_PIN        = A0;      // <-- connect SiPM fast-out here (0–3.3 V ONLY!)
+
+// COMMAND MODE: On/Off control
+const uint32_t SAMPLE_US   = 100;     // sample period (100 µs = 10 kS/s)
+const uint32_t BLINK_MS    = 500;     // LED blink while collecting
+const uint32_t FLUSH_EVERY = 100;     // flush SD every N lines
+const uint32_t BUFFER_DURATION_SEC = 30; // Rolling CSV buffer duration (seconds)
+
+// ADC settings
+const int   ADC_BITS       = 12;      // 0..4095
+const int   ADC_AVG_HW     = 1;       // fastest (no HW averaging)
+const float ADC_VREF       = 3.3f;    // Teensy ADC reference (keep input <= 3.3 V)
+
+// Windowed detection (volts). Counts on rising entry into this window.
+const float LOWER_ENTER_V  = 0.30f;  // 60 mV: must rise past this to consider a hit
+const float LOWER_EXIT_V   = 0.300f;  // 50 mV: must fall below this to re-arm (hysteresis)
+const float UPPER_LIMIT_V  = 0.800f;  // 300 mV: must be <= this at hit moment
+
+// Refractory (ignore re-triggers for this long after a hit), µs
+const uint32_t REFRACT_US  = 300;     // tune to your pulse width
+
+// -------------------- Globals --------------------
+File logfile;
+File bufferFile;
+bool ledState = false;
+uint32_t lastBlink = 0;
+bool sdAvailable = false;
+bool isCollecting = false;  // On/Off state
+String bufferFilename = "buffer.csv";
+
+inline void blinkWhileRunning() {
+  uint32_t now = millis();
+  if (now - lastBlink >= BLINK_MS) {
+
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState);
+    lastBlink = now;
+  }
+}
+
+String nextCsvFilename() {
+  for (int i = 0; i < 1000; ++i) {
+    char name[24];
+    snprintf(name, sizeof(name), "counts%03d.csv", i);
+    if (!SD.exists(name)) return String(name);
+  }
+  return String("counts.csv");
+}
+
+// -------------------- Global State --------------------
+uint32_t t0_us;
+uint32_t next_sample_us;
+float countsPerVolt;
+bool armed = true;
+uint32_t last_hit_us = 0;
+uint32_t cum_counts = 0;
+uint32_t lines_since_flush = 0;
+
+// -------------------- Command Handler --------------------
+void processCommand(String cmd) {
+  cmd.trim();
+  cmd.toLowerCase();
+
+  if (cmd == "on") {
+    if (!isCollecting) {
+      isCollecting = true;
+      t0_us = micros();  // Reset timestamp origin
+      cum_counts = 0;    // Reset counter
+      Serial.println("[SEEs] Collection ON");
+
+      // Open rolling buffer file
+      if (sdAvailable) {
+        if (bufferFile) bufferFile.close();
+        if (SD.exists(bufferFilename.c_str())) SD.remove(bufferFilename.c_str());
+        bufferFile = SD.open(bufferFilename.c_str(), FILE_WRITE);
+        if (bufferFile) {
+          bufferFile.println("time_ms,voltage_V,hit,cum_counts");
+        }
+      }
+    }
+  }
+  else if (cmd == "off") {
+    if (isCollecting) {
+      isCollecting = false;
+      Serial.println("[SEEs] Collection OFF");
+      if (bufferFile) {
+        bufferFile.flush();
+        bufferFile.close();
+      }
+    }
+  }
+  else if (cmd == "snap") {
+    Serial.println("[SEEs] SNAP command received (handled by computer)");
+    // Computer will handle reading the buffer file via snap
+  }
+  else if (cmd.length() > 0) {
+    Serial.print("[SEEs] Unknown command: ");
+    Serial.println(cmd);
+  }
+}
+
+// -------------------- Setup --------------------
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);  // Solid ON when idle
+
+  // Start Serial immediately (do not wait)
+  Serial.begin(115200);
+  delay(500); // Brief delay for serial to stabilize
+
+  // SD init (onboard slot) - Optional, continue if fails
+  sdAvailable = SD.begin(BUILTIN_SDCARD);
+
+  if (sdAvailable) {
+    Serial.println("[SEEs] SD card ready");
+  } else {
+    Serial.println("[SEEs] Warning: SD card not found");
+  }
+
+  Serial.println("[SEEs] Command-based streaming mode");
+  Serial.println("[SEEs] Commands: on, off, snap");
+  Serial.println("[SEEs] Data format: time_ms,voltage_V,hit,cum_counts");
+
+  // ADC config
+  analogReadResolution(ADC_BITS);
+  analogReadAveraging(ADC_AVG_HW);
+  (void)analogRead(ADC_PIN);  // warm-up dummy read
+
+  // Initialize timing
+  next_sample_us = micros();
+  lastBlink = millis();
+
+  countsPerVolt = ADC_VREF / ((1UL << ADC_BITS) - 1UL);
+
+  Serial.println("[SEEs] Ready - waiting for commands");
+}
+
+// -------------------- Loop (Command-Based Streaming) --------------------
+void loop() {
+  // Check for serial commands
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    processCommand(cmd);
+  }
+
+  // Update LED state
+  if (isCollecting) {
+    // Blink while collecting
+    uint32_t now = millis();
+    if (now - lastBlink >= BLINK_MS) {
+      ledState = !ledState;
+      digitalWrite(LED_PIN, ledState);
+      lastBlink = now;
+    }
+  } else {
+    // Solid ON when idle
+    digitalWrite(LED_PIN, HIGH);
+  }
+
+  // Only collect data if ON
+  if (!isCollecting) return;
+
+  // Timing check
+  uint32_t now_us = micros();
+  if ((int32_t)(now_us - next_sample_us) < 0) return;
+  next_sample_us += SAMPLE_US;
+
+  // ADC -> V
+  int   raw = analogRead(ADC_PIN);
+  float v   = raw * countsPerVolt;
+
+  // Windowed detection with hysteresis + refractory
+  uint8_t hit = 0;
+  if (armed) {
+    if (v >= LOWER_ENTER_V && v <= UPPER_LIMIT_V && (now_us - last_hit_us) >= REFRACT_US) {
+      hit = 1;
+      ++cum_counts;
+      last_hit_us = now_us;
+      armed = false;  // disarm until we drop below LOWER_EXIT_V
+    }
+  } else {
+    if (v < LOWER_EXIT_V) {
+      armed = true;   // re-arm after falling low
+    }
+  }
+
+  // Timestamp (ms since collection started)
+  float t_ms = (now_us - t0_us) / 1000.0f;
+
+  // Always output CSV to Serial (for computer streaming)
+  Serial.print(t_ms, 3); Serial.print(',');
+  Serial.print(v, 4);    Serial.print(',');
+  Serial.print(hit);     Serial.print(',');
+  Serial.println(cum_counts);
+
+  // Write to rolling buffer file on SD
+  if (sdAvailable && bufferFile) {
+    bufferFile.print(t_ms, 3); bufferFile.print(',');
+    bufferFile.print(v, 4);    bufferFile.print(',');
+    bufferFile.print(hit);     bufferFile.print(',');
+    bufferFile.println(cum_counts);
+
+    if (++lines_since_flush >= FLUSH_EVERY) {
+      bufferFile.flush();
+      lines_since_flush = 0;
+
+      // TODO: Implement FIFO trimming to keep only last 30 seconds
+      // For now, file grows unbounded - computer handles snap extraction
+    }
+  }
+}
