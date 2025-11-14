@@ -38,7 +38,7 @@ Interactive command console for the SiPM particle detector.
 ### What is what?
 
 - **Teensy 4.1**: A small circuit board (microcontroller) that controls the detector
-- **detector**: The scientific instrument that measures light
+- **detector**: The scientific instrument that detects particle events
 - **USB Cable**: Connects the Teensy to your computer (you need a micro-USB cable)
 - **COM Port**: How Windows identifies USB devices (like COM3, COM4, etc.)
 - **PowerShell**: A blue window where you type commands (it's built into Windows)
@@ -62,15 +62,15 @@ Interactive command console for the SiPM particle detector.
 5. Click the arrow → at the bottom (Upload)
 6. Wait for SUCCESS
 
-**To use the device (EVERY TIME YOU WANT TO TAKE MEASUREMENTS):**
+**To use the device (EVERY TIME YOU WANT TO COLLECT DATA):**
 1. Plug in the Teensy via USB
-2. Open File Explorer, go to `aeris-sees-software\SEEsDriver`
+2. Open File Explorer, go to `aeris-sees-software`
 3. Click in the address bar, type `powershell`, press Enter
 4. Type `.\SEEs.bat` and press Enter
-5. Type `measure` to take a measurement
-6. Type `auto 60` to take measurements every 60 seconds
-7. Type `stop` to stop automatic measurements
-8. Your data is saved in folders like `session_2025-11-13_...`
+5. Type `on` to start data collection
+6. Type `snap` to capture a ±2.5s window
+7. Type `off` to stop data collection
+8. Your data is saved in folders like `~/sees_outputlogs/YYYYMMDD.HHMM/`
 
 ### Common Terms You'll See
 
@@ -360,31 +360,14 @@ This step installs a special add-on (library) that lets Python talk to the Teens
 
 ## Hardware Setup
 
-### Required Components
-- Teensy 4.1 microcontroller
-- SiPM particle detector
-- USB cable (spliced for USB Host connection)
-- Micro-USB cable (for serial console - connects Teensy to computer)
-- SD card (optional, but recommended for data logging)
+🚧 **UNDER CONSTRUCTION** 🚧
 
-### Physical Connections
+This section will be completed with specific hardware connection details for the SEEs particle detector.
 
-```
-Computer ←─ micro-USB ─→ Teensy 4.1 ←─ USB Host Pads ─→ AvaSpec
-    (Serial Console)      🟥🟩⬜⬛ spliced     (USB-A spliced)
-                          5V D+ D– GND
-```
-
-**USB Host Wiring** (already done, but for reference):
-- 🟥 Red (5V) → Teensy 5V Host Pad
-- 🟩 Green (D+) → Teensy D+ Host Pad
-- ⬜ White (D–) → Teensy D– Host Pad
-- ⬛ Black (GND) → Teensy GND Host Pad
-
-**What you need to do:**
-1. Connect the **micro-USB cable** from your computer to the Teensy 4.1
-2. The detector should already be connected to the Teensy via USB Host pads
-3. Insert an **SD card** into the Teensy if you want to save data
+**For now, the minimum you need:**
+1. Connect the **micro-USB cable** from your computer to the Teensy 4.1 (for console/data)
+2. Insert an **SD card** into the Teensy (optional, for onboard data logging)
+3. Detailed SiPM detector wiring will be documented here soon
 
 ---
 
@@ -640,20 +623,15 @@ Let's make sure everything is working by asking for help.
 
 ```
 Available Commands:
-  help      - Show this help message
-  measure   - Take single measurement
-  identify  - Query device identification
-  auto      - Start auto mode (auto [seconds])
-  stop      - Stop auto mode
-  status    - Show system status
-  sd-on     - Enable SD card logging
-  sd-off    - Disable SD card logging
+  on    - Start data collection
+  snap  - Capture ±2.5s window
+  off   - Stop data collection
 ```
 
-7. **After the commands**, you'll see the `>` prompt again
-8. **If you see this list**:
+7. **After** seeing this output, you're ready to collect data!
+8. **If you see data streaming or system messages**:
    - **PERFECT!** Everything is working!
-   - You're ready to take measurements!
+   - You can now use the `on`, `snap`, and `off` commands!
 9. **If nothing happens or you see an error**:
    - See [Troubleshooting - No output](#problem-no-output-in-putty--console-is-blank)
    - Or see [Troubleshooting - Commands don't work](#problem-commands-dont-work--nothing-happens)
@@ -664,246 +642,142 @@ Available Commands:
 
 Now the fun part - actually using the detector to collect data!
 
-### Single Measurement
+### Commands Overview
 
-Let's take ONE measurement.
+The SEEs detector has three simple commands:
+- **`on`** - Start continuous data collection (10 kHz sampling)
+- **`snap`** - Capture a ±2.5s window from the 30-second rolling buffer
+- **`off`** - Stop data collection
 
-1. **Make sure** you see the `>` prompt in the PowerShell window
-2. **Type exactly**: `measure`
+### Start Data Collection
+
+Let's start collecting particle detection data.
+
+1. **Make sure** you're in the SEEs console (you should see text from the Teensy)
+2. **Type exactly**: `on`
 3. **Press Enter**
-4. **WATCH THE SCREEN** - lots of text will appear!
-5. **BE PATIENT** - this takes about 15 seconds
-6. **You'll see** progress messages like:
-   - "Starting Measurement #1"
-   - "Querying device identification..."
-   - "Preparing measurement parameters..."
-   - "Starting measurement..."
-   - "Acquiring data..."
-   - Lots of CSV data (numbers separated by commas)
-   - "Measurement Complete!"
-7. **After** all this text, you'll see the `>` prompt again
-8. **SUCCESS!** You just took your first measurement!
-9. **Your data is automatically saved** in the SEEsDriver folder
+4. **You'll see**: `[SEEs] Collection ON`
+5. **IMMEDIATELY** - CSV data starts streaming!
+   - You'll see lines like: `0.100,0.2543,0,0`
+   - Format: `time_ms,voltage_V,hit,cum_counts`
+   - Data streams at 10,000 samples per second
+6. **The detector is now collecting** - leave it running!
+7. **Data is automatically saved** to:
+   - `~/sees_outputlogs/YYYYMMDD.HHMM/SEEs.YYYYMMDD.HHMM.stream.csv`
+   - This file grows as data streams
 
-### Automatic Mode (Take Measurements Repeatedly)
+### Capture a Snap (±2.5s Window)
 
-Want the detector to take measurements automatically every minute? Here's how:
+While data is streaming, you can capture focused time windows.
 
-1. **At the `>` prompt**, type: `auto 60`
-   - That's the word "auto", a space, then the number "60"
-   - The "60" means "every 60 seconds" (1 minute)
+1. **While data is streaming** (after sending `on`), type: `snap`
 2. **Press Enter**
-3. **You'll see**: `Auto-measurement mode STARTED`
-4. **The system will now take a measurement every 60 seconds**
-   - You'll see all the measurement text appear
-   - Then it waits 60 seconds
-   - Then takes another measurement
-   - This repeats forever until you stop it
-5. **To STOP automatic mode**:
-   - **Type**: `stop`
-   - **Press Enter**
-   - You'll see: `Auto-measurement mode STOPPED`
+3. **You'll see**: `📸 SNAP #1 at HH:MM:SS`
+4. **Wait 2.5 seconds** - the system collects post-snap data
+5. **After 2.5 seconds**, you'll see: `✅ SNAP SAVED: SEEs.YYYYMMDD.HHMMSS.csv`
+6. **The snap file contains**:
+   - 2.5 seconds of data BEFORE you pressed snap
+   - 2.5 seconds of data AFTER you pressed snap
+   - Total: 5 seconds of data (~50,000 samples)
+7. **Data continues streaming** - you can snap again anytime!
 
-**Want a different interval?**
-- Type `auto 30` for every 30 seconds
-- Type `auto 120` for every 2 minutes (120 seconds)
-- Type `auto 300` for every 5 minutes (300 seconds)
+**Why use snap?**
+- Captures temporal context around an event
+- Future: Will be triggered by VIA spectrometer via GPIO
+- Creates focused datasets for science analysis
 
-### Check System Status
+### Stop Data Collection
 
-Want to see what's happening?
+When you're done collecting data:
 
-1. **Type**: `status`
+1. **Type**: `off`
 2. **Press Enter**
-3. **You'll see information like**:
-   - SD Card Logging: ENABLED or DISABLED
-   - Auto Mode: RUNNING or STOPPED
-   - Auto Interval: How many seconds between measurements
-   - Measurements Taken: Total count
-   - Uptime: How long the system has been running
-4. **This helps you check**:
-   - Is automatic mode running?
-   - How many measurements have been taken?
-   - Is the SD card working?
+3. **You'll see**: `[SEEs] Collection OFF`
+4. **Data stops streaming**
+5. **All your data is saved** in `~/sees_outputlogs/YYYYMMDD.HHMM/`
 
-### Turn SD Card Logging On/Off
+### Example Session
 
-If you have an SD card in the Teensy, you can control whether it saves data.
+Here's a typical data collection session:
 
-**To turn ON SD card logging:**
-1. **Type**: `sd-on`
-2. **Press Enter**
-3. You'll see a confirmation message
-4. Now all measurements will be saved to the SD card
-
-**To turn OFF SD card logging:**
-1. **Type**: `sd-off`
-2. **Press Enter**
-3. You'll see a confirmation message
-4. Measurements will no longer be saved to the SD card (but still saved to your computer via SEEs.bat)
-
----
-
-## Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `on` | Start data collection (LED blinks, data streams) |
-| `off` | Stop data collection (LED solid, streaming stops) |
-| `snap` | Capture ±2.5s window (2.5s before + 2.5s after command) ||| Command | Description |
-|---------|-------------|
-| `on` | Start data collection (LED blinks, data streams) |
-| `off` | Stop data collection (LED solid, streaming stops) |
-| `snap` | Capture ±2.5s window (2.5s before + 2.5s after command) ||| Command | Description |
-|---------|-------------|
-| `on` | Start data collection (LED blinks, data streams) |
-| `off` | Stop data collection (LED solid, streaming stops) |
-| `snap` | Capture ±2.5s window (2.5s before + 2.5s after command) |-|| Command | Description |
-|---------|-------------|
-| `on` | Start data collection (LED blinks, data streams) |
-| `off` | Stop data collection (LED solid, streaming stops) |
-| `snap` | Capture ±2.5s window (2.5s before + 2.5s after command) |
-
-**Examples:**
 ```
-> on              # Single measurement
-> on              # Auto mode every 30 seconds
-> snap               # Check system status
-> off                # Enable logging
-> off                 # Stop auto mode
+[SEEs] Ready - waiting for commands
+on                          ← You type this
+[SEEs] Collection ON
+0.100,0.2543,0,0           ← Data streams
+0.200,0.2501,0,0
+0.300,0.2489,0,0
+...
+30.500,0.3145,1,1          ← Particle detected!
+30.600,0.4521,0,1
+...
+snap                        ← You type this (maybe saw something interesting)
+📸 SNAP #1 at 21:05:15
+   Waiting 2.5s to collect post-snap data...
+...
+✅ SNAP SAVED: SEEs.20251113.210515.csv
+   Window: 21:05:15 ±2.5s
+   Frames: 50000
+...
+off                         ← You type this when done
+[SEEs] Collection OFF
 ```
-
----
-
-## Telemetry
-
-### System Status
-- **SD Card Status** - ENABLED / DISABLED
-- **Auto Mode** - RUNNING / STOPPED
-- **Auto Interval** - Seconds between measurements
-- **Measurement Count** - Total measurements taken
-- **System Uptime** - Time since boot (seconds)
-
-### Spectrum Data
-- **Format**: 2048 pixels × 16-bit intensity values
-- **Size**: 4,106 bytes raw binary (10-byte header + 4,096 bytes pixel data)
-- **Output**: CSV (Serial + SD) and hex dump (SD only)
-
-### Data Files (SD Card)
-- `meas_0001.txt` - Raw measurement (hex format, ~12,350 bytes)
-- `spectrum_0001.csv` - Spectrum data (Pixel,Intensity format)
-- Files increment automatically
 
 ---
 
 ## Data Capture
 
-**Good News!** When you use `SEEs.bat`, all measurements are **automatically saved** to timestamped session folders in the SEEsDriver directory. You don't need to do anything extra!
+### Where to Find Your Data
 
-**Where to find your data:**
-1. Open File Explorer
-2. Navigate to: `aeris-sees-software\SEEsDriver\`
-3. Look for folders with names like: `sees_outputlogs/YYYYMMDD.HHMM`
-4. Inside you'll find all your CSV files
+**Good News!** When you use `SEEs.bat`, all data is **automatically saved** to timestamped session folders. You don't need to do anything extra!
 
-### Method 1: Automatic Logging (Using SEEs.bat - RECOMMENDED)
-
-**This happens automatically when you use SEEs.bat:**
-- Every measurement is saved to a CSV file
-- Files are organized in timestamped session folders
-- You can find them in the `SEEsDriver` folder
-- Example: `sees_outputlogs/YYYYMMDD.HHMM\spectrum_0001.csv`
-
-**To take measurements:**
-1. Run `SEEs.bat` (as described above)
-2. Type `measure` to take a single measurement
-3. Or type `auto 60` to take measurements every 60 seconds
-4. Your data is automatically saved!
-
-### Method 2: Manual Data Capture (Advanced)
-
-If you want to manually capture data using Python scripts:
-
-**Step 1: Open PowerShell in the SEEsDriver folder** (see previous section)
-
-**Step 2: Capture a live measurement:**
+**Data Location:**
 ```
-python capture_measurement.py COM3 my_spectrum.csv
-```
-- Replace `COM3` with your actual COM port
-- Replace `my_spectrum.csv` with your desired filename
-- The script will wait for you to type `measure` in PuTTY/VIA console
-- Data will be saved to `my_spectrum.csv`
-
-**Step 3: List files on SD card:**
-```
-python file_transfer.py COM3 list
+C:\Users\YourName\sees_outputlogs\YYYYMMDD.HHMM\
+├── SEEs.YYYYMMDD.HHMM.log           (Full session log)
+├── SEEs.YYYYMMDD.HHMM.stream.csv    (All streaming data)
+├── SEEs.YYYYMMDD.HHMMSS.csv         (Snap #1: ±2.5s window)
+├── SEEs.YYYYMMDD.HHMMSS.csv         (Snap #2: ±2.5s window)
+└── ...
 ```
 
-**Step 4: Download a specific file from SD card:**
+### File Descriptions
+
+**Stream File** (`SEEs.YYYYMMDD.HHMM.stream.csv`):
+- Contains ALL data while collection was ON
+- Continuous CSV data at 10 kHz sampling
+- Format: `time_ms,voltage_V,hit,cum_counts`
+- Can be very large for long collection sessions
+
+**Snap Files** (`SEEs.YYYYMMDD.HHMMSS.csv`):
+- Each snap creates a separate file
+- Contains exactly 5 seconds of data (±2.5s around snap time)
+- ~50,000 data points per snap
+- Includes header with timing metadata
+
+**Log File** (`SEEs.YYYYMMDD.HHMM.log`):
+- Complete session transcript
+- Includes all commands you typed
+- Includes all system messages
+- Useful for debugging
+
+### Opening Data Files
+
+**Option 1: Microsoft Excel**
+1. Right-click on a CSV file
+2. Choose "Open with" → "Excel"
+3. Data appears in spreadsheet format
+
+**Option 2: Python/MATLAB**
+```python
+import pandas as pd
+data = pd.read_csv('SEEs.20251113.210515.csv', comment='=')
+# Columns: time_ms, voltage_V, hit, cum_counts
 ```
-python file_transfer.py COM3 get spectrum_0001.csv
-```
 
-### Method 3: Reading SD Card Directly
-
-**Easiest way to get ALL your data:**
-1. **Unplug** the Teensy from your computer
-2. **Remove** the SD card from the Teensy
-3. **Insert** the SD card into your computer (you may need an SD card reader)
-4. **Open** the SD card in File Explorer
-5. **Copy** all the files to your computer
-6. Files will be named like:
-   - `meas_0001.txt` (raw hex data)
-   - `spectrum_0001.csv` (CSV format - use this one!)
-7. **Safely eject** the SD card
-8. **Re-insert** it into the Teensy
-9. **Plug** the Teensy back into your computer
-
----
-
-## Example Session
-
-```
-════════════════════════════════════════════════════════
-  AERIS SEEs Detector Control System
-  Version 3.0 - Command Console Mode
-════════════════════════════════════════════════════════
-
-> snap
-────────────────────────────────────────────
-System Status:
-────────────────────────────────────────────
-  SD Card Logging:     ENABLED
-  Auto Mode:           STOPPED
-  Measurements Taken:  0
-  Uptime:              5 seconds
-────────────────────────────────────────────
-
-> on
-
-════════════════════════════════════════════════════════
-Starting Measurement #1
-════════════════════════════════════════════════════════
-📁 Logging to: /meas_0001.txt
-📡 Querying device identification...
-⚙️  Preparing measurement parameters...
-🔬 Starting measurement...
-⏳ Acquiring data...
-✅ Data acquisition complete
-📝 Acknowledging measurement...
-💾 Data logged to SD card
-════════════════════════════════════════════════════════
-Measurement Complete!
-════════════════════════════════════════════════════════
-
-> on
-🔄 Auto-measurement mode STARTED
-   Interval: 30 seconds
-
-> off
-⏹  Auto-measurement mode STOPPED
-```
+**Option 3: Text Editor**
+- Any text editor can open CSV files
+- Good for quick inspection
 
 ---
 
@@ -1190,17 +1064,14 @@ Measurement Complete!
    - Or if not COM3: `.\SEEs.bat COM4` (use your port)
 
 **4. Commands:**
-   - `help` - Show all commands
-   - `status` - Check system status
-   - `measure` - Take ONE measurement (~15 seconds)
-   - `auto 60` - Take measurements every 60 seconds
-   - `stop` - Stop automatic measurements
-   - `sd-on` / `sd-off` - Enable/disable SD card
+   - `on` - Start data collection
+   - `snap` - Capture ±2.5s window
+   - `off` - Stop data collection
 
 **5. Find your data:**
-   - Open `SEEsDriver` folder
-   - Look for `session_2025-XX-XX_...` folders
-   - CSV files are inside!
+   - Look in `C:\Users\YourName\sees_outputlogs\`
+   - Folders named `YYYYMMDD.HHMM`
+   - CSV files inside: stream.csv and snap CSVs!
 
 ### Finding Your COM Port
 
@@ -1217,7 +1088,7 @@ Measurement Complete!
 | SEEs.bat not found | Make sure you're in SEEsDriver folder |
 | COM port error | Check Device Manager, unplug/replug Teensy |
 | Script closes immediately | Try: `pip install pyserial` |
-| No measurements | Check Teensy is plugged in, try `help` command |
+| No data streaming | Check Teensy is plugged in, try `on` command |
 | Can't find data | Look in SEEsDriver for `session_...` folders |
 
 ### Keyboard Shortcuts
