@@ -1,59 +1,162 @@
-# aeris-sees-software
-## Brief Overview
-This repository contains the software for the **SEEs Payload** (Solar Energetic Events detector).  
-The SEEs detector uses a four-layer scintillator stack (3× EJ212 plastic scintillators and 1× BGO crystal) read out by SiPMs. Signals are digitized and processed by an FPGA, which applies thresholds, coincidence logic, and energy binning.  
-The Teensy 4.1 microcontroller handles communication with the FPGA, performs telemetry packet assembly, and streams formatted data to the AERIS spacecraft bus.
+# AERIS / SEEs Software
 
-![SEEs Block Diagram](sees.png)
+## Brief Overview
+This is the code repository for the SEEs (Solar Energetic Events) Payload firmware for the AERIS mission. The SEEs payload uses a SiPM-based particle detector connected to a Teensy 4.1 microcontroller.
+
+The firmware handles:
+- ADC-based data acquisition from SiPM detector
+- Windowed particle detection with hysteresis and refractory logic
+- Command console interface via USB Serial
+- SD card data buffering for trigger captures
+- Live CSV streaming to computer
+
+## System Architecture
+
+```
+SiPM Detector (Analog)
+         ↓
+Teensy 4.1 (SEEs Payload)
+    ├─ ADC (A0) - 10 kHz sampling
+    ├─ SD Card (rolling buffer)
+    ├─ USB Serial (command console + data stream)
+    └─ Future: UART → Artemis OBC → Radio
+
+Future FPGA version:
+    SiPM → FPGA (histograms) → Teensy → OBC
+```
+
+**Current Version:** ADC-based prototype with command control
+
+## Quick Start
+
+**👉 See [QUICKSTART.md](QUICKSTART.md) for detailed usage instructions**
+
+```bash
+# Install Python dependencies
+cd SEEsDriver
+pip install -r requirements.txt
+
+# Build and upload
+pio run --target upload
+
+# Connect to console (Linux/Mac)
+./SEEs.sh
+
+# Connect to console (Windows)
+SEEs.bat
+
+# Commands
+on    # Start collecting
+snap  # Capture ±2.5s window
+off   # Stop collecting
+```
 
 ## Build Instructions
-1. Download and install [VSCode](https://code.visualstudio.com/download) & [GitHub Desktop](https://desktop.github.com/download/).
-2. Install the required VSCode extensions:
-   * [PlatformIO](https://platformio.org/install/ide?install=vscode)
-   * [C/C++](https://code.visualstudio.com/docs/languages/cpp)
-3. Clone the repository from GitHub Desktop by selecting:
-   * **Add** → **Clone Repository...** → **URL** → paste the repository link.
-   * Repository URL: `https://github.com/hsfl/aeris-sees-software.git`
-4. In VSCode, open the cloned repo as a PlatformIO project.
-5. Confirm the environment is set to Teensy 4.1 (`platformio.ini` already configured).
-6. Build the code:
-   * Bottom-left of VSCode → click the checkmark (✔).
-   * A `[SUCCESS]` message in the terminal indicates a successful build.
-7. Upload the firmware to the Teensy 4.1:
-   * Bottom-left → click the right-arrow (→).
-   * Teensy Loader CLI will handle flashing.
-8. Open the serial monitor:
-   bash
-   pio device monitor -b 115200
-to view telemetry output.
+1. Download and install VSCode & GitHub Desktop.
+   * VSCode: https://code.visualstudio.com/download
+   * GitHub Desktop: https://desktop.github.com/download/
+2. Install both the C/C++ and PlatformIO extension in VSCode.
+   * PlatformIO: https://platformio.org/install/ide?install=vscode
+   * C/C++: https://code.visualstudio.com/docs/languages/cpp
+3. Clone the repository from GitHub Desktop by clicking "Add" at the top left, "Clone Repository...", "URL," copying the link below into the prompt, and then clicking Clone.
+   * Repository URL: https://github.com/hsfl/aeris-sees-software.git
+4. Go to VSCode and initialize the PlatformIO extension.
+5. In the "QUICK ACCESS" column, click on "Open" and then "Open Project" in the tab that opens. Locate and choose the "SEEsDriver" folder within the "aeris-sees-software" folder.
+   * This should have opened the SEEsDriver folder as a PlatformIO project with all the dependencies and configurations it needs.
+6. From the explorer column on the left, navigate the SEEsDriver folder to "src", then to "main.cpp".
+7. On the bottom left are multiple buttons; click the checkmark to build the code, confirming a successful build when [SUCCESS] appears on the terminal that pops up.
+   * That finishes building the software.
 
-## Getting Data
+To get relevant data, continue to "Getting Data" section.
 
-The FPGA performs coincidence detection and energy binning, outputting event counts and timing data.
-The Teensy receives these FPGA packets, validates them with CRC, attaches sequence numbers and timestamps, and formats telemetry packets (1024B frames).
-Data can be:
+## Getting Data with Teensy 4.1
 
-Streamed over USB serial for integration testing.
+### Hardware Connections
+1. **SiPM Detector**: Connect fast-out to Teensy pin A0 (0-3.3V)
+2. **SD Card**: Insert into Teensy 4.1 built-in SD card slot
+3. **USB Serial**: Connect micro-USB to computer for command console
+4. **Power**: Provide 5V power to Teensy 4.1
 
-Forwarded via UART to the spacecraft OBC for downlink.
+### Detection Setup
+The firmware uses windowed detection on the ADC input:
+- **Sampling rate**: 10 kHz (100 µs per sample)
+- **Detection window**: 0.30V - 0.80V
+- **Hysteresis**: Re-arm below 0.30V
+- **Refractory period**: 300 µs (prevents double-counting)
 
-Example current output (simulated test packets):
+### Data Flow
+The firmware provides an interactive command console:
+1. User sends commands via USB Serial (`on`, `off`, `snap`)
+2. System samples ADC at 10 kHz and detects particle hits
+3. Data streamed live to computer as CSV
+4. Data logged to SD card rolling buffer (30-second FIFO)
+5. Snap captures extract ±2.5s windows on command
 
-SEEs Integration test starting...
-3916 | 30 91 15 72 | Coinc: 1 | Flags: 0
-4416 | 41 107 98 91 | Coinc: 1 | Flags: 0
-5416 | 94 80 26 96 | Coinc: 1 | Flags: 0
-...
+### Data Output Formats
+- **Live CSV stream**: `time_ms,voltage_V,hit,cum_counts`
+- **Computer logs**: Timestamped session folders with streaming + snap CSVs
+- **SD buffer**: Rolling `buffer.csv` file on Teensy SD card
+
+## Firmware Modules
+
+### Active Firmware (ADC-based)
+- **main.cpp**: Entry point and command loop
+- **SEEs_ADC.h/.cpp**: ADC-based driver with on/off/snap commands
+- **sees_interactive.py**: Python console with circular buffer for snap captures
+
+### Computer Control Scripts
+- **SEEs.sh** / **SEEs.bat**: Console launchers (Linux/Mac/Windows)
+- **sees_interactive.py**: Interactive Python console with:
+  - Character-by-character input forwarding
+  - Circular buffer (2.5s pre-trigger)
+  - Snap capture (±2.5s window extraction)
+  - Automatic session logging
+
+### Hardware Configuration
+- **ADC (A0)**: SiPM fast-out connection (0-3.3V input)
+- **Serial (USB)**: Command console and CSV data stream at 115200 baud
+- **SD Card**: Built-in Teensy 4.1 SD interface (BUILTIN_SDCARD)
+
+### DEPRECATED (Future FPGA version)
+- **DEPRECATED/SEEs.h/.cpp**: FPGA-based histogram driver (waiting for FPGA hardware)
+- **DEPRECATED/FPGA_Interface.h/.cpp**: SPI communication with FPGA
+- Will be restored when FPGA hardware is ready
+
+## Development Roadmap
+
+### Version History
+- **Prototype**: ✅ ADC-based detection with command control
+- **V1.0**: ✅ On/off/snap command interface
+- **V2.0**: 🔄 FPGA integration (4-layer histogram processing)
+- **V3.0**: 🔄 Full system (AERIS iOBC) - Merge into AERIS FSW
 
 ### Critical Path
-- [x] Teensy development environment set up (PlatformIO, serial monitor working)
-- [x] Basic packet struct defined in software
-- [x] Teensy can simulate and stream test packets
-- [ ] Implement FPGA → Teensy data interface (UART/SPI)
-- [ ] Verify CRC handling on real FPGA packets
-- [ ] Format telemetry packets to 1024B + CRC
-- [ ] Integrate watchdog + heartbeat
-- [ ] ...
-- [ ] ...
-- [ ] ...
-- [ ] Validate full OBC handoff in system tests
+- [x] Create Initial Driver
+- [x] Implement ADC-based particle detection
+- [x] Add windowed detection with hysteresis
+- [x] Implement command console interface (on/off/snap)
+- [x] Add computer control scripts (Python + bash/bat)
+- [x] Circular buffer for snap captures
+- [x] SD card rolling buffer
+- [ ] FPGA interface implementation (SPI communication)
+- [ ] 4-layer scintillator histogram processing
+- [ ] Define Payload-to-Bus Software ICD
+- [ ] Add remote command handlers for spacecraft bus
+- [ ] Interface into flat-sat testing environment
+- [ ] Full integration with Artemis spacecraft bus software
+
+---
+
+## Repository
+
+**GitHub**: https://github.com/hsfl/aeris-sees-software
+
+**License**: MIT (see LICENSE file)
+
+---
+
+## Credits
+
+**AERIS Payload Software Team** - Hawaii Space Flight Laboratory
+
+*2025*

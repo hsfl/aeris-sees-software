@@ -1,0 +1,15 @@
+# Python dependencies for AERIS SEEs Detector Software
+# Install with: pip install -r requirements.txt
+#
+# PREREQUISITES (Install these first, before running pip install):
+# 1. Python 3.8 or newer from https://www.python.org/downloads/
+#    - During installation, CHECK "Add Python to PATH"
+# 2. Visual Studio Code from https://code.visualstudio.com/
+# 3. PlatformIO IDE extension in VS Code
+# 4. Git from https://git-scm.com/download/win
+#
+# After installing the above, run this in PowerShell:
+#   pip install -r requirements.txt
+
+# Core dependency - Required for serial communication with Teensy
+pyserial>=3.5
