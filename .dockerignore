@@ -1,0 +1,10 @@
+# Don't copy build artifacts into Docker context
+.git
+.vscode
+*.code-workspace
+SEEsDriver/.pio
+SEEsDriver/.pioenvs
+SEEsDriver/.piolibdeps
+*.pyc
+__pycache__
+sees_outputlogs
