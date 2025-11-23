@@ -15,7 +15,7 @@ How snap works:
   - Saves to: SEEs.YYYYMMDD.HHMMSS.csv (e.g., SEEs.20251113.210515.csv)
 
 Directory structure:
-~/sees_outputlogs/YYYYMMDD.HHMM/
+~/Aeris/data/sees/YYYYMMDD.HHMM/
 ├── SEEs.YYYYMMDD.HHMM.log          (full session log)
 ├── SEEs.YYYYMMDD.HHMM.stream.csv   (streaming data when ON)
 ├── SEEs.YYYYMMDD.HHMMSS.csv        (snap: ±2.5s around HHMMSS)
@@ -96,7 +96,7 @@ class CircularBuffer:
 
 def create_session_directory():
     """Create timestamped session directory"""
-    base_dir = Path.home() / "sees_outputlogs"
+    base_dir = Path.home() / "Aeris" / "data" / "sees"
     session_timestamp = datetime.now().strftime("%Y%m%d.%H%M")
     session_dir = base_dir / session_timestamp
     session_dir.mkdir(parents=True, exist_ok=True)

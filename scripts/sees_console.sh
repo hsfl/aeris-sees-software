@@ -8,7 +8,7 @@
 #        Default port: /dev/ttyACM0
 
 PORT="${1:-/dev/ttyACM0}"
-BASE_DIR="$HOME/sees_outputlogs"
+BASE_DIR="$HOME/Aeris/data/sees"
 SESSION_TIMESTAMP=$(date +%Y%m%d.%H%M)
 SESSION_DIR="$BASE_DIR/$SESSION_TIMESTAMP"
 LOGFILE="$SESSION_DIR/SEEs.$SESSION_TIMESTAMP.log"

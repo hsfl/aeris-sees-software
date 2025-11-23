@@ -29,26 +29,36 @@ Future FPGA version:
 
 ## Quick Start
 
-**👉 See [QUICKSTART.md](QUICKSTART.md) for detailed usage instructions**
+**👉 See [QUICKSTART.md](QUICKSTART.md) for complete workflow (unit tests → HIL → flatsat)**
+
+### Run Tests (No Hardware)
 
 ```bash
-# Install Python dependencies
-cd SEEsDriver
-pip install -r requirements.txt
+cd tests
+./run_all_tests.sh
+```
 
+### Hardware Testing
+
+```bash
 # Build and upload
+cd SEEsDriver
 pio run --target upload
 
-# Connect to console (Linux/Mac)
+# Connect to console
 ./SEEs.sh
 
-# Connect to console (Windows)
-SEEs.bat
-
 # Commands
-on    # Start collecting
-snap  # Capture ±2.5s window
-off   # Stop collecting
+SEEs> on
+SEEs> snap
+SEEs> off
+```
+
+### Flatsat (Pi 400)
+
+```bash
+ssh pi@192.168.4.163  # Password: aeris
+sees && git pull && sees-test && sees-console
 ```
 
 ## Build Instructions
@@ -116,6 +126,43 @@ The firmware provides an interactive command console:
 - **ADC (A0)**: SiPM fast-out connection (0-3.3V input)
 - **Serial (USB)**: Command console and CSV data stream at 115200 baud
 - **SD Card**: Built-in Teensy 4.1 SD interface (BUILTIN_SDCARD)
+
+## Testing
+
+### Automated Test Suite
+
+The `tests/` directory contains a complete test suite for development without hardware:
+
+- **test_data_generator.py**: Generates realistic particle detector data
+- **test_python_scripts.py**: 10+ unit tests for data processing
+- **virtual_serial_port.py**: Simulates Teensy firmware for interactive testing
+- **run_all_tests.sh**: Automated test runner
+
+Run all tests:
+
+```bash
+cd tests
+./run_all_tests.sh
+```
+
+See [tests/README.md](tests/README.md) for details.
+
+### Test Without Hardware
+
+Simulate the full system locally:
+
+**Terminal 1:**
+
+```bash
+cd tests
+python3 virtual_serial_port.py
+```
+
+**Terminal 2:**
+
+```bash
+./SEEs.sh /tmp/tty_sees
+```
 
 ### DEPRECATED (Future FPGA version)
 - **DEPRECATED/SEEs.h/.cpp**: FPGA-based histogram driver (waiting for FPGA hardware)
