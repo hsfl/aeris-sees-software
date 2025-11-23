@@ -1,13 +1,28 @@
 # AERIS / SEEs Software
 
 ## Brief Overview
-This is the code repository for the SEEs (Solar Energetic Events) Payload firmware for the AERIS mission. The SEEs payload uses a SiPM-based particle detector connected to a Teensy 4.1 microcontroller.
+
+This is the code repository for the SEEs (Solar Energetic Events) Payload firmware for the AERIS mission. SEEs is one of three scientific payloads creating the **first-ever trimodal, temporally-linked dataset** examining upper atmospheric composition (NOx, O3) during solar particle events.
+
+**AERIS Payload Architecture:**
+- **VIA** (spectrometer) - Takes snapshots, triggers GPIO to coordinate other payloads
+- **SEEs** (particle detector) - Continuous recording, ±2.5s window on VIA trigger
+- **AMPPs** (plasma detector) - Continuous recording, ±2.5s window on VIA trigger
+
+**Temporal Linking (The Key):**
+
+VIA controls timing. When VIA captures a spectrum, it pulses GPIO → SEEs and AMPPs capture synchronized ±2.5s windows → All three datasets bundled with VIA's timestamp → OBC packages for downlink.
+
+**Why Body Cam Mode:** SEEs and AMPPs don't track absolute time - they only count "1 second, 1 second, 1 second." The ±2.5s buffer captures what happened BEFORE the VIA trigger (pre-event particle flux) and AFTER (post-event response). This creates temporally-linked trimodal measurements of atmospheric chemistry during solar particle events.
+
+SEEs payload uses a SiPM-based particle detector connected to Teensy 4.1 microcontroller.
 
 The firmware handles:
-- ADC-based data acquisition from SiPM detector
+- ADC-based data acquisition from SiPM detector (10 kHz sampling)
 - Windowed particle detection with hysteresis and refractory logic
+- 30-second circular buffer (always recording, "body cam" mode)
+- Snap capture: ±2.5s window extraction on demand
 - Command console interface via USB Serial
-- SD card data buffering for trigger captures
 - Live CSV streaming to computer
 
 ## System Architecture
@@ -95,24 +110,36 @@ The firmware uses windowed detection on the ADC input:
 - **Refractory period**: 300 µs (prevents double-counting)
 
 ### Data Flow
-The firmware provides an interactive command console:
-1. User sends commands via USB Serial (`on`, `off`, `snap`)
-2. System samples ADC at 10 kHz and detects particle hits
-3. Data streamed live to computer as CSV
-4. Data logged to SD card rolling buffer (30-second FIFO)
-5. Snap captures extract ±2.5s windows on command
+
+**Circular Buffer (Body Cam Mode):**
+- Buffer starts recording on power-up (always active)
+- Stores last 30 seconds of detector data in RAM
+- Oldest samples automatically overwritten when full
+
+**Commands:**
+- `on` - Enable Serial CSV streaming (debugging)
+- `off` - Disable Serial streaming
+- `snap` - Save ±2.5s window to SD card (includes pre-event data!)
+
+**Snap Behavior:**
+- Captures 2.5s BEFORE trigger + 2.5s after (5 seconds total)
+- Saves to: `snaps/snap_NNNNN_<timestamp>.csv`
+- Non-blocking: buffer keeps recording during snap
 
 ### Data Output Formats
+
 - **Live CSV stream**: `time_ms,voltage_V,hit,cum_counts`
-- **Computer logs**: Timestamped session folders with streaming + snap CSVs
-- **SD buffer**: Rolling `buffer.csv` file on Teensy SD card
+- **Snap files**: `snaps/snap_NNNNN_<timestamp>.csv` (±2.5s windows)
+- **Format**: `time_ms,voltage_V,hit,layers,cum_counts,timestamp_us`
 
 ## Firmware Modules
 
 ### Active Firmware (ADC-based)
+
 - **main.cpp**: Entry point and command loop
-- **SEEs_ADC.h/.cpp**: ADC-based driver with on/off/snap commands
-- **sees_interactive.py**: Python console with circular buffer for snap captures
+- **SEEs_ADC.{hpp,cpp}**: ADC driver with circular buffer integration
+- **CircularBuffer.{hpp,cpp}**: 30-second rolling buffer (6 MB RAM)
+- **SnapManager.{hpp,cpp}**: ±2.5s window extraction and SD file saving
 
 ### Computer Control Scripts
 - **SEEs.sh** / **SEEs.bat**: Console launchers (Linux/Mac/Windows)
@@ -133,19 +160,26 @@ The firmware provides an interactive command console:
 
 The `tests/` directory contains a complete test suite for development without hardware:
 
-- **test_data_generator.py**: Generates realistic particle detector data
-- **test_python_scripts.py**: 10+ unit tests for data processing
-- **virtual_serial_port.py**: Simulates Teensy firmware for interactive testing
-- **run_all_tests.sh**: Automated test runner
+- **test_data_generator.py**: Simulates 4-layer detector with cosmic ray physics
+- **test_python_scripts.py**: 15 unit tests for data generation
+- **test_circular_buffer.py**: 7 tests for FIFO logic and memory usage
+- **test_multilayer_detection.py**: 9 tests for coincidence physics
+- **run_all_tests.sh**: Complete 7-stage test pipeline
 
-Run all tests:
+Run all tests (31 total):
 
 ```bash
 cd tests
 ./run_all_tests.sh
 ```
 
-See [tests/README.md](tests/README.md) for details.
+Tests validate:
+
+- Circular buffer FIFO behavior
+- Time window extraction (±2.5s)
+- Pre-event data capture (body cam)
+- Multi-layer coincidence logic (ready for FPGA)
+- Memory usage (6 MB fits in Teensy 4.1's 8 MB RAM)
 
 ### Test Without Hardware
 

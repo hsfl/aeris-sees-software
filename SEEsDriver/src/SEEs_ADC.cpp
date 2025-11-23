@@ -19,6 +19,10 @@ void SEEs_ADC::begin() {
     Serial.begin(115200);
     delay(500);
 
+    Serial.println("[SEEs] ====================================");
+    Serial.println("[SEEs] SEEs Particle Detector - Starting");
+    Serial.println("[SEEs] ====================================");
+
     // Try to initialize SD card
     _sdAvailable = SD.begin(BUILTIN_SDCARD);
     if (_sdAvailable) {
@@ -27,9 +31,24 @@ void SEEs_ADC::begin() {
         Serial.println("[SEEs] Warning: SD card not found");
     }
 
+    // Initialize circular buffer (always active - body cam mode)
+    Serial.println("[SEEs] Initializing circular buffer...");
+    if (!_circularBuffer.begin()) {
+        Serial.println("[SEEs] ERROR: Failed to initialize circular buffer!");
+        Serial.println("[SEEs] System cannot continue - halting");
+        while (1) {
+            digitalWrite(_ledPin, millis() % 200 < 100);  // Fast blink = error
+            delay(10);
+        }
+    }
+
+    // Initialize snap manager
+    _snapManager.begin(_sdAvailable);
+
     Serial.println("[SEEs] Command-based streaming mode");
     Serial.println("[SEEs] Commands: on, off, snap");
     Serial.println("[SEEs] Data format: time_ms,voltage_V,hit,cum_counts");
+    Serial.println("[SEEs] Circular buffer: ACTIVE (body cam mode)");
 
     // Configure ADC
     analogReadResolution(ADC_BITS);
@@ -39,10 +58,13 @@ void SEEs_ADC::begin() {
     // Initialize timing
     _next_sample_us = micros();
     _lastBlink = millis();
+    _t0_us = micros();  // Start buffer timestamp
 
     _countsPerVolt = ADC_VREF / ((1UL << ADC_BITS) - 1UL);
 
-    Serial.println("[SEEs] Ready - waiting for commands");
+    Serial.println("[SEEs] ====================================");
+    Serial.println("[SEEs] Ready - buffer recording started");
+    Serial.println("[SEEs] ====================================");
 }
 
 void SEEs_ADC::update() {
@@ -55,10 +77,9 @@ void SEEs_ADC::update() {
     // Update LED state
     updateLED();
 
-    // Only sample if collecting
-    if (_isCollecting) {
-        sampleAndStream();
-    }
+    // ALWAYS sample into circular buffer (body cam mode)
+    // "on" command just enables Serial streaming for debugging
+    sampleAndStream();
 }
 
 void SEEs_ADC::processCommand(const String& cmd) {
@@ -99,7 +120,13 @@ void SEEs_ADC::processCommand(const String& cmd) {
     }
     else if (cmdLower == "snap") {
         Serial.println("[SEEs] SNAP command received");
-        // Python script will handle extracting from circular buffer
+        uint32_t snapTime = micros();
+        if (_snapManager.captureSnap(_circularBuffer, snapTime)) {
+            Serial.print("[SEEs] Snap captured! Total snaps: ");
+            Serial.println(_snapManager.getSnapCount());
+        } else {
+            Serial.println("[SEEs] ERROR: Failed to capture snap");
+        }
     }
     else if (cmdLower.length() > 0) {
         Serial.print("[SEEs] Unknown command: ");
@@ -151,22 +178,34 @@ void SEEs_ADC::sampleAndStream() {
     // Timestamp since collection started
     float t_ms = (now_us - _t0_us) / 1000.0f;
 
-    // Stream to Serial
-    Serial.print(t_ms, 3); Serial.print(',');
-    Serial.print(v, 4);    Serial.print(',');
-    Serial.print(hit);     Serial.print(',');
-    Serial.println(_cum_counts);
+    // ALWAYS push to circular buffer (body cam mode)
+    DetectorSample sample;
+    sample.time_ms = t_ms;
+    sample.voltage = v;
+    sample.hit = hit;
+    sample.layers = 1;  // Single layer for now (future: FPGA will provide multi-layer)
+    sample.cum_counts = _cum_counts;
+    sample.timestamp = now_us;
+    _circularBuffer.push(sample);
 
-    // Write to SD buffer
-    if (_sdAvailable && _bufferFile) {
-        _bufferFile.print(t_ms, 3); _bufferFile.print(',');
-        _bufferFile.print(v, 4);    _bufferFile.print(',');
-        _bufferFile.print(hit);     _bufferFile.print(',');
-        _bufferFile.println(_cum_counts);
+    // Stream to Serial ONLY if "on" command was sent
+    if (_isCollecting) {
+        Serial.print(t_ms, 3); Serial.print(',');
+        Serial.print(v, 4);    Serial.print(',');
+        Serial.print(hit);     Serial.print(',');
+        Serial.println(_cum_counts);
 
-        if (++_lines_since_flush >= FLUSH_EVERY) {
-            _bufferFile.flush();
-            _lines_since_flush = 0;
+        // Write to SD buffer
+        if (_sdAvailable && _bufferFile) {
+            _bufferFile.print(t_ms, 3); _bufferFile.print(',');
+            _bufferFile.print(v, 4);    _bufferFile.print(',');
+            _bufferFile.print(hit);     _bufferFile.print(',');
+            _bufferFile.println(_cum_counts);
+
+            if (++_lines_since_flush >= FLUSH_EVERY) {
+                _bufferFile.flush();
+                _lines_since_flush = 0;
+            }
         }
     }
 }

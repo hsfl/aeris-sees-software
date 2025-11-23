@@ -11,6 +11,8 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include "CircularBuffer.hpp"
+#include "SnapManager.hpp"
 
 class SEEs_ADC {
 public:
@@ -79,6 +81,10 @@ private:
 
     File _bufferFile;
     String _bufferFilename;
+
+    // Circular buffer and snap management
+    CircularBuffer _circularBuffer;
+    SnapManager _snapManager;
 
     // Private methods
     void updateLED();

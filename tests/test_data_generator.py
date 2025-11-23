@@ -12,6 +12,7 @@ Usage:
 """
 
 import random
+import math
 import csv
 from pathlib import Path
 import argparse
@@ -19,39 +20,62 @@ import argparse
 
 class ParticleDetectorSimulator:
     """
-    Simulates SiPM particle detector data with realistic hit patterns.
+    Simulates 4-layer scintillator stack for cosmic ray detection.
 
-    Detection parameters:
-    - Sampling rate: 10 kHz (100 µs per sample)
-    - Detection window: 0.30V - 0.80V
-    - Baseline: ~0.1V with noise
-    - Particle pulses: ~0.5V peak, 300 µs width
+    The detector has 4 layers (0, 1, 2, 3) stacked vertically.
+    Particles enter from the top and penetrate downward through the stack.
+
+    COINCIDENCE DETECTION:
+    Because layers are stacked, a particle reaching layer N lights up ALL layers 0 through N.
+    This is a coincidence telescope - measuring penetration depth to determine energy.
+
+    Coincidence patterns (what lights up):
+    - 1-layer: Layer 0 only (low energy, stopped in first layer)
+    - 2-layer: Layers 0 AND 1 (typical cosmic ray, penetrated to layer 1)
+    - 3-layer: Layers 0, 1, AND 2 (high energy, penetrated to layer 2)
+    - 4-layer: Layers 0, 1, 2, AND 3 (very high energy, penetrated entire stack)
+
+    Data is bucketed into 5-second intervals for telemetry.
+    Each bucket contains counts of 1-layer, 2-layer, 3-layer, and 4-layer events.
     """
 
-    def __init__(self, seed=42):
+    def __init__(self, seed=42, num_layers=4):
         """
-        Initialize detector simulator.
+        Initialize 4-layer detector simulator.
 
         Args:
             seed: Random seed for reproducibility
+            num_layers: Number of scintillator layers (default 4)
         """
         self.seed = seed
         self.rng = random.Random(seed)
+        self.num_layers = num_layers
 
-        # ADC parameters
-        self.sample_rate_hz = 10000  # 10 kHz
+        # Sampling parameters (for ADC simulation)
+        self.sample_rate_hz = 10000  # 10 kHz sampling
         self.sample_period_ms = 1000.0 / self.sample_rate_hz  # 0.1 ms
 
         # Detection parameters
-        self.baseline_v = 0.1  # Baseline voltage
-        self.noise_level_v = 0.02  # Noise amplitude
-        self.hit_threshold_v = 0.30  # Hit detection threshold
-        self.hit_ceiling_v = 0.80  # Hit upper threshold
-        self.refractory_period_ms = 0.3  # 300 µs refractory period
+        self.baseline_v = 0.100
+        self.noise_level_v = 0.010
+        self.pulse_peak_v = 0.500
+        self.pulse_width_ms = 0.5
+        self.hit_threshold_v = 0.30
+        self.hit_ceiling_v = 0.80
+        self.refractory_period_ms = 0.3
 
-        # Particle pulse parameters
-        self.pulse_peak_v = 0.5  # Typical pulse peak
-        self.pulse_width_ms = 0.3  # 300 µs pulse width
+        # Temporal parameters
+        self.coincidence_window_ms = 0.010  # 10 µs coincidence window
+        self.bucket_duration_s = 5.0  # 5-second telemetry buckets
+
+        # Layer penetration probabilities (for cosmic rays)
+        # Higher energy → more layers penetrated
+        self.layer_penetration_probs = {
+            1: 0.20,  # 20% single-layer (edge hits, low energy)
+            2: 0.45,  # 45% two-layer (typical cosmic rays)
+            3: 0.25,  # 25% three-layer (high energy)
+            4: 0.10,  # 10% four-layer (very high energy)
+        }
 
     def generate_baseline_noise(self):
         """Generate baseline voltage with Gaussian noise."""
@@ -94,13 +118,15 @@ class ParticleDetectorSimulator:
 
         # Generate random hit times using Poisson process
         hit_times = []
-        t = 0.0
-        while t < duration_seconds * 1000:  # Convert to ms
-            # Exponential inter-arrival time
-            interval = -1000 * (1.0 / hit_rate_hz) * self.rng.log(self.rng.random())
-            t += interval
-            if t < duration_seconds * 1000:
-                hit_times.append(t)
+        if hit_rate_hz > 0:  # Only generate hits if rate > 0
+            t = 0.0
+            while t < duration_seconds * 1000:  # Convert to ms
+                # Exponential inter-arrival time (Poisson process)
+                u = self.rng.random()
+                interval = -1000 * (1.0 / hit_rate_hz) * math.log(u) if u > 0 else float('inf')
+                t += interval
+                if t < duration_seconds * 1000:
+                    hit_times.append(t)
 
         hit_times.sort()
         hit_index = 0
@@ -157,6 +183,115 @@ class ParticleDetectorSimulator:
         """Generate data with high hit rate (particle burst)."""
         return self.generate_dataset(duration_seconds, hit_rate_hz=hit_rate_hz)
 
+    def generate_coincidence_event(self, timestamp_s):
+        """
+        Generate a multi-layer coincidence event.
+
+        Returns number of layers penetrated (1-4) based on energy distribution.
+        """
+        # Weighted random choice for number of layers
+        rand = self.rng.random()
+        cumulative = 0.0
+        for layers, prob in sorted(self.layer_penetration_probs.items()):
+            cumulative += prob
+            if rand <= cumulative:
+                return layers, timestamp_s
+        return 4, timestamp_s  # Fallback to max layers
+
+    def generate_layered_dataset(self, duration_seconds=30.0, hit_rate_hz=100.0):
+        """
+        Generate cosmic ray detection data with layer coincidence.
+
+        Args:
+            duration_seconds: Total duration to simulate
+            hit_rate_hz: Average cosmic ray hit rate (hits per second)
+
+        Returns:
+            List of events: [(timestamp_s, num_layers), ...]
+        """
+        events = []
+
+        # Generate random hit times using Poisson process
+        if hit_rate_hz > 0:
+            t = 0.0
+            while t < duration_seconds:
+                # Exponential inter-arrival time (Poisson process)
+                u = self.rng.random()
+                interval = -(1.0 / hit_rate_hz) * math.log(u) if u > 0 else float('inf')
+                t += interval
+                if t < duration_seconds:
+                    num_layers, _ = self.generate_coincidence_event(t)
+                    events.append((t, num_layers))
+
+        return events
+
+    def bucket_events(self, events, bucket_duration_s=5.0):
+        """
+        Bucket events into time intervals and count by layer.
+
+        Args:
+            events: List of (timestamp_s, num_layers) tuples
+            bucket_duration_s: Bucket size in seconds (default 5.0s)
+
+        Returns:
+            List of buckets: [(bucket_start_s, counts_by_layer), ...]
+            where counts_by_layer = {1: count, 2: count, 3: count, 4: count}
+        """
+        if not events:
+            return []
+
+        # Find time range
+        max_time = max(t for t, _ in events)
+        num_buckets = int(math.ceil(max_time / bucket_duration_s))
+
+        # Initialize buckets
+        buckets = []
+        for i in range(num_buckets):
+            bucket_start = i * bucket_duration_s
+            counts = {1: 0, 2: 0, 3: 0, 4: 0}
+            buckets.append((bucket_start, counts))
+
+        # Fill buckets
+        for timestamp, num_layers in events:
+            bucket_idx = int(timestamp / bucket_duration_s)
+            if bucket_idx < len(buckets):
+                buckets[bucket_idx][1][num_layers] += 1
+
+        return buckets
+
+    def extract_snap_window(self, buckets, snap_time_s, window_seconds=2.5):
+        """
+        Extract ±2.5s window around a snap event from bucketed data.
+
+        This simulates extracting data from a 30-second circular buffer.
+        The snap window captures all buckets that overlap with [snap-2.5s, snap+2.5s].
+
+        Args:
+            buckets: List of (bucket_start_s, counts_by_layer)
+            snap_time_s: Snap timestamp in seconds
+            window_seconds: Window size before and after snap (default 2.5s)
+
+        Returns:
+            List of buckets in the snap window (buckets that overlap with the time window)
+        """
+        if not buckets:
+            return []
+
+        bucket_duration = buckets[1][0] - buckets[0][0] if len(buckets) > 1 else 5.0
+
+        window_start = snap_time_s - window_seconds
+        window_end = snap_time_s + window_seconds
+
+        # Extract buckets that overlap with the snap window
+        snap_window = []
+        for bucket_start, counts in buckets:
+            bucket_end = bucket_start + bucket_duration
+            # Include bucket if it overlaps with [window_start, window_end]
+            if bucket_end > window_start and bucket_start < window_end:
+                snap_window.append((bucket_start, counts))
+
+        return snap_window
+
 
 def write_csv(data, output_file):
     """Write data to CSV file."""
@@ -208,3 +343,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
