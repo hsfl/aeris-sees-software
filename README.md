@@ -164,11 +164,6 @@ python3 virtual_serial_port.py
 ./SEEs.sh /tmp/tty_sees
 ```
 
-### DEPRECATED (Future FPGA version)
-- **DEPRECATED/SEEs.h/.cpp**: FPGA-based histogram driver (waiting for FPGA hardware)
-- **DEPRECATED/FPGA_Interface.h/.cpp**: SPI communication with FPGA
-- Will be restored when FPGA hardware is ready
-
 ## Development Roadmap
 
 ### Version History

@@ -31,6 +31,20 @@ This directory contains files that are no longer actively used in the SEES softw
 
 **If you need Windows support:** Use WSL2 or the Pi 400 testing machine instead.
 
+## FPGA Firmware (`fpga/`)
+
+**Status:** Future hardware - not yet available
+
+**Reason:** Waiting for FPGA hardware to be built for flight version.
+
+**Contents:**
+
+- `SEEs.hpp/cpp` - FPGA-based histogram driver
+- `FPGA_Interface.hpp/cpp` - SPI communication with FPGA
+- `DEPRETIATED_Scintillator_Counter` - Original simple counter
+
+**Current hardware:** Teensy 4.1 with direct ADC sampling (see `SEEsDriver/src/`)
+
 ---
 
 ## Current Workflow
