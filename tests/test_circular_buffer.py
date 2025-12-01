@@ -208,12 +208,52 @@ class TestMemoryConstraints(unittest.TestCase):
         self.assertLess(snap_mb, 2.0, "Snap buffer should be manageable")
 
 
+class CompactTestResult(unittest.TextTestResult):
+    """Custom test result that shows short descriptions."""
+
+    def __init__(self, stream, descriptions, verbosity):
+        super().__init__(stream, descriptions, verbosity)
+        self.successes = []
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self.successes.append(test)
+
+    def printResults(self):
+        """Print compact results with checkmarks."""
+        for test in self.successes:
+            desc = test.shortDescription() or str(test)
+            print(f"    \033[0;32m✓\033[0m {desc}")
+        for test, _ in self.failures:
+            desc = test.shortDescription() or str(test)
+            print(f"    \033[0;31m✗\033[0m {desc}")
+        for test, _ in self.errors:
+            desc = test.shortDescription() or str(test)
+            print(f"    \033[0;31m✗\033[0m {desc}")
+
+
 def run_tests():
-    """Run all circular buffer tests."""
+    """Run tests with configurable verbosity."""
+    verbose = "-v" in sys.argv or "--verbose" in sys.argv
+
     loader = unittest.TestLoader()
     suite = loader.loadTestsFromModule(sys.modules[__name__])
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
+
+    if verbose:
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+    else:
+        import io
+        import contextlib
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            stream = open('/dev/null', 'w')
+            runner = unittest.TextTestRunner(stream=stream, verbosity=0, resultclass=CompactTestResult)
+            result = runner.run(suite)
+            stream.close()
+
+        result.printResults()
+
     return result.wasSuccessful()
 
 

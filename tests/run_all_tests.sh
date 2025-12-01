@@ -2,11 +2,16 @@
 #
 # SEEs Software Test Suite Runner
 #
-# Runs all automated tests for the SEEs particle detector software
-# without requiring physical hardware.
+# Usage:
+#   ./run_all_tests.sh        # Quiet mode (summary only)
+#   ./run_all_tests.sh -v     # Verbose mode (all output)
 #
 
-set -e  # Exit on error
+# Parse arguments
+VERBOSE=0
+if [ "$1" == "-v" ] || [ "$1" == "--verbose" ]; then
+    VERBOSE=1
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -19,152 +24,207 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Track results
+TESTS_PASSED=0
+TESTS_FAILED=0
+
 echo "═══════════════════════════════════════════════════════════════════"
-echo "  SEEs PARTICLE DETECTOR SOFTWARE - AUTOMATED TEST SUITE"
+echo "  SEEs PARTICLE DETECTOR - TEST SUITE"
 echo "═══════════════════════════════════════════════════════════════════"
+if [ $VERBOSE -eq 0 ]; then
+    echo "  (use -v for verbose output)"
+fi
 echo ""
 
-# Check Python version
-echo -e "${BLUE}[1/5] Checking Python environment...${NC}"
-python3 --version
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1: Generate test data
+# ─────────────────────────────────────────────────────────────────────────────
+if [ $VERBOSE -eq 1 ]; then
+    echo -e "${BLUE}[1/6] Generating test data...${NC}"
+    python3 test_data_generator.py --duration 5.0 --hit-rate 10.0 --output test_data/sees_test_10hz.csv
+    python3 test_data_generator.py --duration 2.0 --hit-rate 50.0 --output test_data/sees_burst_50hz.csv
+    python3 test_data_generator.py --duration 5.0 --hit-rate 0.0 --output test_data/sees_quiet.csv
+    echo ""
+else
+    python3 test_data_generator.py --duration 5.0 --hit-rate 10.0 --output test_data/sees_test_10hz.csv > /dev/null 2>&1
+    python3 test_data_generator.py --duration 2.0 --hit-rate 50.0 --output test_data/sees_burst_50hz.csv > /dev/null 2>&1
+    python3 test_data_generator.py --duration 5.0 --hit-rate 0.0 --output test_data/sees_quiet.csv > /dev/null 2>&1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: Unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+echo "  Unit Tests:"
+if [ $VERBOSE -eq 1 ]; then
+    python3 test_python_scripts.py -v
+else
+    python3 test_python_scripts.py
+fi
+UNIT_RESULT=$?
 echo ""
 
-# Generate test data
-echo -e "${BLUE}[2/5] Generating test data...${NC}"
-python3 test_data_generator.py --duration 5.0 --hit-rate 10.0 --output test_data/sees_test_10hz.csv
-python3 test_data_generator.py --duration 2.0 --hit-rate 50.0 --output test_data/sees_burst_50hz.csv
-python3 test_data_generator.py --duration 5.0 --hit-rate 0.0 --output test_data/sees_quiet.csv
-echo ""
+if [ $UNIT_RESULT -eq 0 ]; then
+    ((TESTS_PASSED++))
+else
+    ((TESTS_FAILED++))
+fi
 
-# Run Python unit tests
-echo -e "${BLUE}[3/7] Running Python unit tests...${NC}"
-python3 test_python_scripts.py
-TEST_RESULT=$?
-echo ""
-
-# Run circular buffer tests
-echo -e "${BLUE}[4/7] Running circular buffer tests...${NC}"
-python3 test_circular_buffer.py
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 3: Circular buffer tests
+# ─────────────────────────────────────────────────────────────────────────────
+echo "  Circular Buffer Tests:"
+if [ $VERBOSE -eq 1 ]; then
+    python3 test_circular_buffer.py -v
+else
+    python3 test_circular_buffer.py
+fi
 BUFFER_RESULT=$?
 echo ""
 
-# Run multi-layer detection tests
-echo -e "${BLUE}[5/7] Running multi-layer detection tests...${NC}"
-python3 test_multilayer_detection.py
+if [ $BUFFER_RESULT -eq 0 ]; then
+    ((TESTS_PASSED++))
+else
+    ((TESTS_FAILED++))
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 4: Multi-layer detection tests
+# ─────────────────────────────────────────────────────────────────────────────
+echo "  Multi-Layer Detection Tests:"
+if [ $VERBOSE -eq 1 ]; then
+    python3 test_multilayer_detection.py -v
+else
+    python3 test_multilayer_detection.py
+fi
 MULTILAYER_RESULT=$?
 echo ""
 
-# Check if PlatformIO is available for firmware tests
-echo -e "${BLUE}[6/7] Checking for PlatformIO (firmware build test)...${NC}"
+if [ $MULTILAYER_RESULT -eq 0 ]; then
+    ((TESTS_PASSED++))
+else
+    ((TESTS_FAILED++))
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 5: Firmware build check
+# ─────────────────────────────────────────────────────────────────────────────
 if command -v pio &> /dev/null; then
-    echo "✅ PlatformIO found"
-    echo "Building firmware (syntax check)..."
-    cd ../SEEsDriver
-    pio run --target checkprogsize 2>&1 | tail -20
-    BUILD_RESULT=$?
-    cd "$SCRIPT_DIR"
+    if [ $VERBOSE -eq 1 ]; then
+        echo -e "${BLUE}[5/6] Building firmware...${NC}"
+        cd ../SEEsDriver
+        pio run 2>&1 | tail -30
+        BUILD_RESULT=$?
+        cd "$SCRIPT_DIR"
+        echo ""
+    else
+        cd ../SEEsDriver
+        pio run > /dev/null 2>&1
+        BUILD_RESULT=$?
+        cd "$SCRIPT_DIR"
+    fi
 
     if [ $BUILD_RESULT -eq 0 ]; then
-        echo -e "${GREEN}✅ Firmware build successful${NC}"
+        ((TESTS_PASSED++))
     else
-        echo -e "${YELLOW}⚠️  Firmware build failed (check SEEsDriver)${NC}"
+        ((TESTS_FAILED++))
     fi
 else
-    echo -e "${YELLOW}⚠️  PlatformIO not found - skipping firmware build test${NC}"
-    echo "   Install with: pip install platformio"
-    BUILD_RESULT=0  # Don't fail overall tests
+    if [ $VERBOSE -eq 1 ]; then
+        echo -e "${YELLOW}[5/6] PlatformIO not found - skipping firmware build${NC}"
+        echo ""
+    fi
+    BUILD_RESULT=-1
 fi
-echo ""
 
-# Test data loading/processing
-echo -e "${BLUE}[7/7] Testing data loading and processing...${NC}"
-if python3 -c "import csv" 2>/dev/null; then
-    echo "✅ CSV module available"
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 6: Data format validation
+# ─────────────────────────────────────────────────────────────────────────────
+if [ $VERBOSE -eq 1 ]; then
+    echo -e "${BLUE}[6/6] Validating data formats...${NC}"
+fi
 
-    # Test data loading
-    if [ -f "test_data/sees_test_10hz.csv" ]; then
-        echo "Testing data loading with generated data..."
-        python3 -c "
-import csv
-from pathlib import Path
-
-# Load test data
-test_file = Path('test_data/sees_test_10hz.csv')
-if test_file.exists():
-    time_vals, voltages, hits, counts = [], [], [], []
-    with open(test_file, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            time_vals.append(float(row['time_ms']))
-            voltages.append(float(row['voltage_V']))
-            hits.append(int(row['hit']))
-            counts.append(int(row['cum_counts']))
-
-    assert len(time_vals) == 50000, f'Expected 50000 samples, got {len(time_vals)}'
-    assert all(0 <= v <= 3.3 for v in voltages), 'Voltage out of range'
-    assert all(h in [0, 1] for h in hits), 'Hit flag not binary'
-    print(f'✅ Successfully loaded {len(time_vals)} data points')
-    print(f'   Voltage range: {min(voltages):.4f}V - {max(voltages):.4f}V')
-    print(f'   Total hits: {counts[-1]}')
-    print(f'   Hit rate: {counts[-1] / 5.0:.1f} hits/s')
-else:
-    print('⚠️  Test data not found')
-    exit(1)
-"
-        DATA_RESULT=$?
-        if [ $DATA_RESULT -eq 0 ]; then
-            echo -e "${GREEN}✅ Data loading test passed${NC}"
+FORMAT_PASSED=1
+for test_file in test_data/sees_test_10hz.csv test_data/sees_burst_50hz.csv test_data/sees_quiet.csv; do
+    if [ -f "$test_file" ]; then
+        # Check header exists (strip CR/LF for cross-platform compatibility)
+        HEADER=$(head -1 "$test_file" | tr -d '\r\n')
+        if [[ "$HEADER" != "time_ms,voltage_V,hit,cum_counts" ]]; then
+            FORMAT_PASSED=0
+            if [ $VERBOSE -eq 1 ]; then
+                echo "  ❌ $test_file: wrong header"
+            fi
+        else
+            if [ $VERBOSE -eq 1 ]; then
+                echo "  ✓ $test_file"
+            fi
+        fi
+    else
+        FORMAT_PASSED=0
+        if [ $VERBOSE -eq 1 ]; then
+            echo "  ❌ $test_file: not found"
         fi
     fi
+done
+
+if [ $FORMAT_PASSED -eq 1 ]; then
+    ((TESTS_PASSED++))
 else
-    echo -e "${YELLOW}⚠️  CSV module not available${NC}"
-    DATA_RESULT=0
+    ((TESTS_FAILED++))
 fi
+
+if [ $VERBOSE -eq 1 ]; then
+    echo ""
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summary
+# ─────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════════════════════"
+echo "  RESULTS"
+echo "═══════════════════════════════════════════════════════════════════"
+
+# Unit tests
+if [ $UNIT_RESULT -eq 0 ]; then
+    echo -e "  ${GREEN}✓${NC} Unit tests"
+else
+    echo -e "  ${RED}✗${NC} Unit tests"
+fi
+
+# Circular buffer
+if [ $BUFFER_RESULT -eq 0 ]; then
+    echo -e "  ${GREEN}✓${NC} Circular buffer"
+else
+    echo -e "  ${RED}✗${NC} Circular buffer"
+fi
+
+# Multi-layer detection
+if [ $MULTILAYER_RESULT -eq 0 ]; then
+    echo -e "  ${GREEN}✓${NC} Multi-layer detection"
+else
+    echo -e "  ${RED}✗${NC} Multi-layer detection"
+fi
+
+# Firmware build
+if [ $BUILD_RESULT -eq 0 ]; then
+    echo -e "  ${GREEN}✓${NC} Firmware build"
+elif [ $BUILD_RESULT -eq -1 ]; then
+    echo -e "  ${YELLOW}-${NC} Firmware build (skipped)"
+else
+    echo -e "  ${RED}✗${NC} Firmware build"
+fi
+
+# Data formats
+if [ $FORMAT_PASSED -eq 1 ]; then
+    echo -e "  ${GREEN}✓${NC} Data formats"
+else
+    echo -e "  ${RED}✗${NC} Data formats"
+fi
+
 echo ""
 
-# Summary
-echo "═══════════════════════════════════════════════════════════════════"
-echo "  TEST SUMMARY"
-echo "═══════════════════════════════════════════════════════════════════"
-
-OVERALL_RESULT=0
-
-if [ $TEST_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ Unit tests: PASSED${NC}"
-else
-    echo -e "${RED}❌ Unit tests: FAILED${NC}"
-    OVERALL_RESULT=1
-fi
-
-if [ $BUFFER_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ Circular buffer tests: PASSED${NC}"
-else
-    echo -e "${RED}❌ Circular buffer tests: FAILED${NC}"
-    OVERALL_RESULT=1
-fi
-
-if [ $MULTILAYER_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ Multi-layer detection tests: PASSED${NC}"
-else
-    echo -e "${RED}❌ Multi-layer detection tests: FAILED${NC}"
-    OVERALL_RESULT=1
-fi
-
-if [ $BUILD_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ Firmware build: PASSED${NC}"
-else
-    echo -e "${YELLOW}⚠️  Firmware build: SKIPPED or FAILED${NC}"
-fi
-
-if [ $DATA_RESULT -eq 0 ]; then
-    echo -e "${GREEN}✅ Data processing: PASSED${NC}"
-else
-    echo -e "${YELLOW}⚠️  Data processing: SKIPPED${NC}"
-fi
-
-echo "═══════════════════════════════════════════════════════════════════"
-
-if [ $OVERALL_RESULT -eq 0 ]; then
+# Final result with ASCII art
+if [ $TESTS_FAILED -eq 0 ]; then
     echo -e "${GREEN}"
     echo "  ███████╗██╗   ██╗ ██████╗ ██████╗███████╗███████╗███████╗"
     echo "  ██╔════╝██║   ██║██╔════╝██╔════╝██╔════╝██╔════╝██╔════╝"
@@ -173,7 +233,9 @@ if [ $OVERALL_RESULT -eq 0 ]; then
     echo "  ███████║╚██████╔╝╚██████╗╚██████╗███████╗███████║███████║"
     echo "  ╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝╚══════╝╚══════╝╚══════╝"
     echo -e "${NC}"
-    echo "All tests passed successfully!"
+    echo "  All $TESTS_PASSED test groups passed"
+    echo ""
+    exit 0
 else
     echo -e "${RED}"
     echo "  ███████╗ █████╗ ██╗██╗     ███████╗██████╗ "
@@ -183,9 +245,11 @@ else
     echo "  ██║     ██║  ██║██║███████╗███████╗██████╔╝"
     echo "  ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═════╝ "
     echo -e "${NC}"
-    echo "Some tests failed. Check output above."
+    echo "  $TESTS_FAILED failed, $TESTS_PASSED passed"
+    if [ $VERBOSE -eq 0 ]; then
+        echo ""
+        echo "  Run with -v for details"
+    fi
+    echo ""
+    exit 1
 fi
-
-echo "═══════════════════════════════════════════════════════════════════"
-
-exit $OVERALL_RESULT
