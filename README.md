@@ -75,7 +75,7 @@ aeris sees sim       # Run simulation
 aeris sees sim -v    # Simulation with verbose output
 ```
 
-<!-- TODO: Screenshot of AERIS console menu showing SEES options -->
+![AERIS Control Panel](docs/aeris.png "AERIS Control Panel")
 
 ### Local Development
 
@@ -144,9 +144,9 @@ The firmware uses windowed detection on the ADC input:
 - **Snap files**: `snaps/snap_NNNNN_<timestamp>.csv` (±2.5s windows)
 - **Format**: `time_ms,voltage_V,hit,layers,cum_counts,timestamp_us`
 
-<!-- TODO: Screenshot of SEES console showing live particle detection output -->
+### Simulation Mode
 
-<!-- TODO: Example particle detection graph (voltage vs time with hits marked) -->
+![SEES Simulation](docs/sees_sim.png "SEES Simulation - Streaming Data with Snap Capture")
 
 ## Firmware Modules
 
@@ -267,7 +267,13 @@ aeris help           # Show all commands
 | **SSH** (same network) | `ssh aeris@192.168.120.22` |
 | **Tailscale** (remote) | `ssh aeris@<tailscale-ip>` |
 
-<!-- TODO: Screenshot of unit tests passing (all 31 tests green) -->
+### Unit Tests
+
+![SEES Unit Tests](docs/sees_units.png "SEES Unit Tests - All 31 Passing")
+
+### Snap Data Output
+
+![SEES Snap Data](docs/sees_data.png "SEES Snap CSV - ±2.5s Window")
 
 ## Development Roadmap
 
