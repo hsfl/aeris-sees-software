@@ -22,6 +22,7 @@ import pty
 import select
 import sys
 import time
+import termios
 import threading
 from pathlib import Path
 
@@ -50,10 +51,16 @@ class VirtualSEEsPort:
         # State
         self.sample_index = 0
         self.current_data = []
+        self.snap_count = 0
 
     def create_virtual_port(self):
         """Create a virtual serial port using pty."""
         self.master_fd, self.slave_fd = pty.openpty()
+
+        # Disable echo on the slave side to prevent feedback loop
+        attrs = termios.tcgetattr(self.slave_fd)
+        attrs[3] = attrs[3] & ~termios.ECHO  # Disable ECHO flag
+        termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
 
         # Create symlink to make it accessible
         if os.path.exists(self.port_path):
@@ -77,9 +84,28 @@ class VirtualSEEsPort:
         if self.master_fd:
             os.write(self.master_fd, message.encode())
 
+    def send_boot_message(self):
+        """Send boot message matching real SEES firmware."""
+        boot_msg = (
+            "[SEEs] ====================================\r\n"
+            "[SEEs] SEEs Particle Detector - Starting\r\n"
+            "[SEEs] ====================================\r\n"
+            "[SEEs] SD card ready\r\n"
+            "[SEEs] Initializing circular buffer...\r\n"
+            "[SEEs] Command-based streaming mode\r\n"
+            "[SEEs] Commands: on, off, snap\r\n"
+            "[SEEs] Data format: time_ms,voltage_V,hit,cum_counts\r\n"
+            "[SEEs] Circular buffer: ACTIVE (body cam mode)\r\n"
+            "[SEEs] ====================================\r\n"
+            "[SEEs] Ready - buffer recording started\r\n"
+            "[SEEs] ====================================\r\n"
+        )
+        self.send_message(boot_msg)
+
     def handle_command(self, command):
         """
         Handle incoming command from client.
+        Matches real SEES firmware behavior (no prompts, [SEEs] prefixed messages).
 
         Args:
             command: Command string (on, off, snap, etc.)
@@ -95,38 +121,24 @@ class VirtualSEEsPort:
                     duration_seconds=60.0,  # Generate 60s of data
                     hit_rate_hz=5.0
                 )
-                self.send_message("\r[SEEs] Data collection started\r\n")
+                self.send_message("[SEEs] Collection ON\r\n")
                 print("📊 Data streaming: ON")
-            else:
-                self.send_message("\r[SEEs] Already collecting data\r\n")
 
         elif cmd == 'off':
             if self.data_streaming:
                 self.data_streaming = False
-                self.send_message("\r[SEEs] Data collection stopped\r\n")
+                self.send_message("[SEEs] Collection OFF\r\n")
                 print("⏸️  Data streaming: OFF")
-            else:
-                self.send_message("\r[SEEs] Not currently collecting\r\n")
 
         elif cmd == 'snap':
-            if self.data_streaming:
-                self.send_message("\r[SEEs] SNAP command received\r\n")
-                print("📸 SNAP triggered")
-            else:
-                self.send_message("\r[SEEs] Start collection with 'on' first\r\n")
+            # Snap works even when not streaming (buffer always recording)
+            self.snap_count += 1
+            self.send_message("[SEEs] SNAP command received\r\n")
+            self.send_message(f"[SEEs] Snap captured! Total snaps: {self.snap_count}\r\n")
+            print(f"📸 SNAP #{self.snap_count} triggered")
 
-        elif cmd == 'help' or cmd == '?':
-            help_text = (
-                "\r[SEEs] Available commands:\r\n"
-                "  on   - Start data collection\r\n"
-                "  off  - Stop data collection\r\n"
-                "  snap - Capture snapshot\r\n"
-                "  help - Show this help\r\n"
-            )
-            self.send_message(help_text)
-
-        elif cmd:
-            self.send_message(f"\r[SEEs] Unknown command: {cmd}\r\n")
+        elif cmd and cmd not in ('', '\r', '\n'):
+            self.send_message(f"[SEEs] Unknown command: {cmd}\r\n")
 
     def stream_data(self):
         """Stream data samples when collection is active.
@@ -175,6 +187,9 @@ class VirtualSEEsPort:
         except OSError:
             pass
 
+        # Send boot message (matches real firmware)
+        self.send_boot_message()
+
         command_buffer = ""
 
         try:
@@ -193,15 +208,10 @@ class VirtualSEEsPort:
                                     if command_buffer:
                                         self.handle_command(command_buffer)
                                         command_buffer = ""
-                                        # Echo prompt only when not streaming
-                                        if not self.data_streaming:
-                                            self.send_message("SEEs> ")
+                                    # No prompt - real firmware doesn't have one
                                 else:
                                     command_buffer += char
-                                    # Only echo characters when NOT streaming data
-                                    # During streaming, echoes mix with data and corrupt output
-                                    if not self.data_streaming:
-                                        os.write(self.master_fd, char.encode())
+                                    # No echo - real firmware doesn't echo typed chars
 
                     except OSError:
                         # Client disconnected
@@ -210,7 +220,7 @@ class VirtualSEEsPort:
                 # Stream data if active
                 if self.data_streaming:
                     self.stream_data()
-                    # 1ms sleep, but sending 10 samples per call = 10kHz effective rate
+                    # 1ms sleep, but sending 25 samples per call = 25kHz effective rate
                     time.sleep(0.001)
 
                 else:
