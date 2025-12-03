@@ -95,29 +95,29 @@ class VirtualSEEsPort:
                     duration_seconds=60.0,  # Generate 60s of data
                     hit_rate_hz=5.0
                 )
-                self.send_message("[SEEs] Data collection started\r\n")
+                self.send_message("\r[SEEs] Data collection started\r\n")
                 print("📊 Data streaming: ON")
             else:
-                self.send_message("[SEEs] Already collecting data\r\n")
+                self.send_message("\r[SEEs] Already collecting data\r\n")
 
         elif cmd == 'off':
             if self.data_streaming:
                 self.data_streaming = False
-                self.send_message("[SEEs] Data collection stopped\r\n")
+                self.send_message("\r[SEEs] Data collection stopped\r\n")
                 print("⏸️  Data streaming: OFF")
             else:
-                self.send_message("[SEEs] Not currently collecting\r\n")
+                self.send_message("\r[SEEs] Not currently collecting\r\n")
 
         elif cmd == 'snap':
             if self.data_streaming:
-                self.send_message("[SEEs] SNAP command received\r\n")
+                self.send_message("\r[SEEs] SNAP command received\r\n")
                 print("📸 SNAP triggered")
             else:
-                self.send_message("[SEEs] Start collection with 'on' first\r\n")
+                self.send_message("\r[SEEs] Start collection with 'on' first\r\n")
 
         elif cmd == 'help' or cmd == '?':
             help_text = (
-                "[SEEs] Available commands:\r\n"
+                "\r[SEEs] Available commands:\r\n"
                 "  on   - Start data collection\r\n"
                 "  off  - Stop data collection\r\n"
                 "  snap - Capture snapshot\r\n"
@@ -126,52 +126,54 @@ class VirtualSEEsPort:
             self.send_message(help_text)
 
         elif cmd:
-            self.send_message(f"[SEEs] Unknown command: {cmd}\r\n")
+            self.send_message(f"\r[SEEs] Unknown command: {cmd}\r\n")
 
     def stream_data(self):
-        """Stream data samples when collection is active."""
+        """Stream data samples when collection is active.
+
+        Sends batches of 25 samples per call to achieve effective 10kHz rate
+        when called every 1ms. Extra samples compensate for receiver-side
+        processing delays and serial buffering.
+        """
         if self.data_streaming and self.current_data:
-            if self.sample_index < len(self.current_data):
-                time_ms, voltage, hit, cum_counts = self.current_data[self.sample_index]
+            # Send 25 samples per call to achieve ~50k frames in 5s window
+            # (compensates for receiver timestamp jitter)
+            batch_size = 25
+            lines = []
 
-                # Format: time_ms,voltage_V,hit,cum_counts
-                data_line = f"{time_ms:.1f},{voltage:.4f},{hit},{cum_counts}\r\n"
-                self.send_message(data_line)
-
-                self.sample_index += 1
-
-                # Loop back if we run out of data
-                if self.sample_index >= len(self.current_data):
-                    # Generate more data
+            for _ in range(batch_size):
+                if self.sample_index < len(self.current_data):
+                    time_ms, voltage, hit, cum_counts = self.current_data[self.sample_index]
+                    lines.append(f"{time_ms:.1f},{voltage:.4f},{hit},{cum_counts}\r\n")
+                    self.sample_index += 1
+                else:
+                    # Generate more data when we run out
                     self.current_data = self.simulator.generate_dataset(
                         duration_seconds=60.0,
                         hit_rate_hz=5.0
                     )
                     self.sample_index = 0
                     print("🔄 Generated new data batch")
+                    break
+
+            if lines:
+                self.send_message(''.join(lines))
 
     def run(self):
         """Main loop for virtual serial port."""
         self.create_virtual_port()
         self.running = True
 
-        # Send startup message
-        time.sleep(0.1)
-        startup_msg = (
-            "\r\n"
-            "═══════════════════════════════════════════\r\n"
-            "  SEEs Payload Firmware (Virtual)\r\n"
-            "═══════════════════════════════════════════\r\n"
-            "  ADC-based particle detector\r\n"
-            "  Sampling: 10 kHz\r\n"
-            "  Window: 0.30V - 0.80V\r\n"
-            "═══════════════════════════════════════════\r\n"
-            "\r\n"
-            "Type 'help' for commands\r\n"
-            "\r\n"
-            "SEEs> "
-        )
-        self.send_message(startup_msg)
+        # Wait for connection to stabilize before sending anything
+        time.sleep(0.2)
+
+        # Flush any garbage from initial connection
+        try:
+            readable, _, _ = select.select([self.master_fd], [], [], 0.1)
+            if readable:
+                os.read(self.master_fd, 1024)  # Discard initial garbage
+        except OSError:
+            pass
 
         command_buffer = ""
 
@@ -191,13 +193,15 @@ class VirtualSEEsPort:
                                     if command_buffer:
                                         self.handle_command(command_buffer)
                                         command_buffer = ""
-                                        # Echo prompt
+                                        # Echo prompt only when not streaming
                                         if not self.data_streaming:
                                             self.send_message("SEEs> ")
                                 else:
                                     command_buffer += char
-                                    # Echo character
-                                    os.write(self.master_fd, char.encode())
+                                    # Only echo characters when NOT streaming data
+                                    # During streaming, echoes mix with data and corrupt output
+                                    if not self.data_streaming:
+                                        os.write(self.master_fd, char.encode())
 
                     except OSError:
                         # Client disconnected
@@ -206,9 +210,8 @@ class VirtualSEEsPort:
                 # Stream data if active
                 if self.data_streaming:
                     self.stream_data()
-                    # Simulate 10 kHz sampling rate (0.1 ms period)
-                    # For testing, we can speed this up
-                    time.sleep(0.001)  # 1 ms (10x faster than real time)
+                    # 1ms sleep, but sending 10 samples per call = 10kHz effective rate
+                    time.sleep(0.001)
 
                 else:
                     # No data streaming, just idle

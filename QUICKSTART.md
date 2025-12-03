@@ -1,250 +1,106 @@
-# SEES Quick Start
+# SEES Particle Detector Quick Start
 
-Complete workflow from unit tests to flatsat integration.
+## Connect to the Pi 400
+
+```bash
+ssh aeris@192.168.120.22
+```
+
+> **Off-campus?** Connect via Tailscale first.
 
 ---
 
-## Local Development & Testing
-
-### 1. Run Unit Tests
-
-Test without hardware:
+## Run the AERIS Console
 
 ```bash
-cd tests
-./run_all_tests.sh
+aeris
 ```
 
-Expected: All tests pass (~15-40 seconds)
+That's it. You'll see the interactive menu:
 
-**What it tests:**
-- Data generation
-- Python unit tests (10+ tests)
-- Firmware build (if PlatformIO installed)
-- Virtual serial port
+```
+╔════════════════════════════════════════════╗
+║          AERIS Control Panel               ║
+╚════════════════════════════════════════════╝
 
-### 2. Interactive Simulation (Optional)
-
-Test console commands without hardware:
-
-**Terminal 1:**
-```bash
-cd tests
-python3 virtual_serial_port.py
+┌────────────────────────┐
+│ SEES Particle Detector │
+├────────────────────────┴─────────────────┐
+│ 4) Unit Tests        Python test suite   │
+│ 5) Simulation        Virtual serial port │
+│ 6) HIL Test          Hardware-in-loop    │
+└──────────────────────────────────────────┘
+...
 ```
 
-**Terminal 2:**
-```bash
-./SEEs.sh /tmp/tty_sees
-```
+Pick an option:
 
-Try commands: `on`, `snap`, `off`
+- **4** - Run unit tests
+- **5** - Run simulation (no hardware needed)
+- **6** - Connect to real Teensy hardware
 
 ---
 
-## Hardware-in-Loop (HIL) Testing
+## CLI Shortcuts
 
-### 3. Connect Hardware
-
-1. Plug Teensy 4.1 into computer via USB
-2. Verify connection: `ls /dev/ttyACM*`
-
-### 4. Upload Firmware
+Skip the menu with direct commands:
 
 ```bash
-cd SEEsDriver
-pio run --target upload
+aeris sees test      # Run unit tests
+aeris sees sim       # Run simulation
+aeris sees sim -v    # Simulation with verbose output
+aeris update         # Pull latest code
+aeris help           # Show all commands
 ```
-
-### 5. Test with Real Hardware
-
-```bash
-./SEEs.sh
-```
-
-In console:
-```
-SEEs> on
-SEEs> snap
-SEEs> off
-```
-
-Data saves to session folder displayed at startup.
 
 ---
 
-## Flatsat Integration
+## SEES Console Commands
 
-### 6. Connect to Testing Pi
-
-```bash
-ssh pi@192.168.4.163
-# Password: aeris
-```
-
-### 7. Update and Test
-
-```bash
-sees             # Go to SEES directory
-git pull         # Get updates
-sees-test        # Run tests
-```
-
-### 8. Connect Flatsat Hardware
-
-1. Plug Teensy 4.1 into Pi via USB
-2. Verify: `ports` should show `/dev/ttyACM0`
-
-### 9. Launch Console
-
-```bash
-sees-console
-```
-
-### 10. Collect Data
-
-```
-SEEs> on
-SEEs> snap       # Capture ±2.5s window
-SEEs> off        # Stop collection
-```
-
-Data saves to `~/Aeris/data/sees/`
-
----
-
-## Command Reference
+Once in the SEES console:
 
 | Command | What it does |
 |---------|--------------|
-| `on` | Start data collection |
-| `off` | Stop data collection |
+| `on` | Start data streaming |
+| `off` | Stop data streaming |
 | `snap` | Capture ±2.5s window |
-| `Ctrl+C` | Exit console |
+| `Ctrl+C` | Exit |
 
 ---
 
-## Pi Shortcuts
+## Understanding SEES Data
 
-| Command | What it does |
-|---------|--------------|
-| `sees` | Go to SEES directory |
-| `sees-test` | Run all tests |
-| `sees-console` | Launch console |
-| `aeris-status` | Check system health |
-| `ports` | List serial ports |
+SEES operates in **"body cam" mode** - always recording the last 30 seconds.
+
+When you run `snap`:
+
+1. Captures 2.5 seconds BEFORE the command
+2. Plus 2.5 seconds AFTER
+3. Total: 5-second window centered on snap time
 
 ---
 
-## Data Locations
+## View Your Data
 
-**Local development:**
-```
-tests/test_data/           # Generated test data
-```
+Data is saved to `~/Aeris/data/sees/YYYYMMDD.HHMM/`:
 
-**HIL testing:**
-```
-Session folder shown at startup
-```
-
-**Flatsat:**
 ```bash
-~/Aeris/data/sees/YYYYMMDD.HHMM/
-├── SEEs.YYYYMMDD.HHMM.log         # Session log
-├── SEEs.YYYYMMDD.HHMM.stream.csv  # Streaming data
-├── SEEs.YYYYMMDD.HHMMSS.csv       # Snapshots
+ls ~/Aeris/data/sees/
 ```
 
 ---
 
 ## Troubleshooting
 
-**Tests fail?**
-```bash
-cd tests
-python3 test_python_scripts.py  # Run tests individually
-```
+**Can't connect?** Check you're on network `192.168.120.x` or use Tailscale.
 
-**No Teensy found?**
-- Replug USB cable
-- Check: `ls /dev/ttyACM*` (local) or `ports` (Pi)
+**Permission denied on serial?** Run `sudo usermod -a -G dialout $USER` and re-login.
 
-**Permission denied?**
-- Add user to dialout group: `sudo usermod -a -G dialout $USER`
-- Logout and login again
-
-**Can't connect to Pi?**
-- Check IP: `192.168.4.163`
-- Password: `aeris`
+**Tests failing?** Use `aeris sees test -v` for verbose output.
 
 ---
 
-## Typical Workflows
+## More Info
 
-### Development Cycle
-```bash
-# 1. Local testing
-cd tests && ./run_all_tests.sh
-
-# 2. Upload to hardware
-cd SEEsDriver && pio run --target upload
-
-# 3. Test with hardware
-./SEEs.sh
-```
-
-### Flatsat Session
-```bash
-# Connect
-ssh pi@192.168.4.163
-
-# Update and test
-sees && git pull && sees-test
-
-# Run flatsat
-sees-console
-
-# In console:
-SEEs> on
-SEEs> snap
-SEEs> off
-SEEs> Ctrl+C
-```
-
----
-
-## Reference Card
-
-```
-┌──────────────────────────────────────────────┐
-│ SEES TESTING WORKFLOW                        │
-├──────────────────────────────────────────────┤
-│ LOCAL                                        │
-│   tests/run_all_tests.sh                     │
-│   pio run --target upload                    │
-│   ./SEEs.sh                                  │
-│                                              │
-│ FLATSAT (Pi 400)                             │
-│   ssh pi@192.168.4.163  (pwd: aeris)        │
-│   sees → git pull → sees-test → sees-console│
-│                                              │
-│ CONSOLE COMMANDS                             │
-│   on         Start collection                │
-│   snap       Capture ±2.5s                   │
-│   off        Stop collection                 │
-│   Ctrl+C     Exit                            │
-│                                              │
-│ DATA                                         │
-│   Local: Session folder at startup           │
-│   Flatsat: ~/Aeris/data/sees/YYYYMMDD.HHMM/ │
-└──────────────────────────────────────────────┘
-```
-
----
-
-## More Information
-
-- **Tests:** `tests/README.md`
-- **Full docs:** `README.md`
-- **Firmware:** `SEEsDriver/README.md`
+- [README.md](README.md) - Full documentation
+- [tests/README.md](tests/README.md) - Test details

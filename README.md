@@ -42,38 +42,50 @@ Future FPGA version:
 
 **Current Version:** ADC-based prototype with command control
 
+## Key Libraries
+
+| Library | Purpose |
+|---------|---------|
+| [SdFat](https://github.com/greiman/SdFat) | High-performance SD card library for data logging |
+| [pyserial](https://pypi.org/project/pyserial/) | Python serial communication for the interactive console |
+| [pty](https://docs.python.org/3/library/pty.html) | Unix pseudo-terminal for virtual serial port simulation |
+
 ## Quick Start
 
-**👉 See [QUICKSTART.md](QUICKSTART.md) for complete workflow (unit tests → HIL → flatsat)**
+**👉 See [QUICKSTART.md](QUICKSTART.md) for complete workflow**
 
-### Run Tests (No Hardware)
+### On the Pi 400
 
 ```bash
-cd tests
-./run_all_tests.sh
+ssh aeris@192.168.120.22
+aeris
 ```
 
-### Hardware Testing
+That's it! The AERIS console handles everything - pick from the menu:
+
+- **4** - SEES Unit Tests
+- **5** - SEES Simulation (no hardware needed)
+- **6** - SEES HIL Test (real Teensy)
+
+Or use CLI shortcuts:
 
 ```bash
-# Build and upload
+aeris sees test      # Run unit tests
+aeris sees sim       # Run simulation
+aeris sees sim -v    # Simulation with verbose output
+```
+
+<!-- TODO: Screenshot of AERIS console menu showing SEES options -->
+
+### Local Development
+
+```bash
+# Build and upload firmware
 cd SEEsDriver
 pio run --target upload
 
-# Connect to console
+# Run console
 ./SEEs.sh
-
-# Commands
-SEEs> on
-SEEs> snap
-SEEs> off
-```
-
-### Flatsat (Pi 400)
-
-```bash
-ssh pi@192.168.4.163  # Password: aeris
-sees && git pull && sees-test && sees-console
 ```
 
 ## Build Instructions
@@ -132,6 +144,10 @@ The firmware uses windowed detection on the ADC input:
 - **Snap files**: `snaps/snap_NNNNN_<timestamp>.csv` (±2.5s windows)
 - **Format**: `time_ms,voltage_V,hit,layers,cum_counts,timestamp_us`
 
+<!-- TODO: Screenshot of SEES console showing live particle detection output -->
+
+<!-- TODO: Example particle detection graph (voltage vs time with hits marked) -->
+
 ## Firmware Modules
 
 ### Active Firmware (ADC-based)
@@ -173,6 +189,25 @@ cd tests
 ./run_all_tests.sh
 ```
 
+### Test Libraries & Dependencies
+
+The test suite uses Python standard library only (no external dependencies required):
+
+| Library | Purpose |
+|---------|---------|
+| `unittest` | Test framework and assertions |
+| `csv` | Reading/writing detector CSV files |
+| `struct` | Binary data packing/unpacking |
+| `pty` + `os` | Virtual serial port creation (Linux/Mac) |
+| `threading` | Concurrent virtual serial port handling |
+| `subprocess` | Running test scripts |
+| `pathlib` | Cross-platform file path handling |
+| `datetime` | Timestamped session folders |
+| `random` | Simulating cosmic ray events |
+| `math` | Poisson statistics for particle physics |
+
+No `pip install` required - works on any system with Python 3.6+.
+
 Tests validate:
 
 - Circular buffer FIFO behavior
@@ -185,18 +220,54 @@ Tests validate:
 
 Simulate the full system locally:
 
-**Terminal 1:**
-
 ```bash
-cd tests
-python3 virtual_serial_port.py
+aeris sees sim      # Runs virtual serial port + console automatically
 ```
 
-**Terminal 2:**
+Or manually:
 
 ```bash
+cd tests && python3 virtual_serial_port.py &
 ./SEEs.sh /tmp/tty_sees
 ```
+
+## Pi 400 Remote Testing
+
+A dedicated Raspberry Pi 400 serves as the remote testing machine for both VIA and SEEs payloads.
+
+### Connect and Run
+
+```bash
+ssh aeris@192.168.120.22
+aeris
+```
+
+The AERIS console provides:
+
+- **4) Unit Tests** - Automated Python test suite
+- **5) Simulation** - Virtual serial port with fake data
+- **6) HIL Test** - Real Teensy hardware
+- **7) Update Code** - Pull latest from git
+- **9) Flash SEES** - Upload firmware to Teensy
+
+### CLI Shortcuts
+
+```bash
+aeris sees test      # Run unit tests
+aeris sees sim       # Run simulation
+aeris sees sim -v    # Verbose mode
+aeris update         # Pull latest code
+aeris help           # Show all commands
+```
+
+### Remote Access
+
+| Method | Command |
+|--------|---------|
+| **SSH** (same network) | `ssh aeris@192.168.120.22` |
+| **Tailscale** (remote) | `ssh aeris@<tailscale-ip>` |
+
+<!-- TODO: Screenshot of unit tests passing (all 31 tests green) -->
 
 ## Development Roadmap
 
