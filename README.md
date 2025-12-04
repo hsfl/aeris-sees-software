@@ -231,6 +231,50 @@ cd tests && python3 virtual_serial_port.py &
 ./SEEs.sh /tmp/tty_sees
 ```
 
+### Simulation vs HIL Architecture
+
+The simulation and hardware-in-loop (HIL) tests use the **same interactive console** - only the data source differs:
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                  scripts/sees_interactive.py                        │
+│         (parses serial data, circular buffer, saves snaps)          │
+│                                                                     │
+│  Detects: "[SEEs] Collection ON", data lines, snap responses        │
+│  Saves:   ~/Aeris/data/sees/YYYYMMDD.HHMM/*.csv                     │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+       /tmp/tty_sees                 /dev/ttyACM0
+       (virtual port)                (real Teensy)
+              │                             │
+              ▼                             ▼
+┌─────────────────────────┐   ┌─────────────────────────────────────┐
+│ tests/                  │   │ SEEsDriver/src/                     │
+│  virtual_serial_port.py │   │  main.cpp       (entry point)       │
+│  test_data_generator.py │   │  SEEs_ADC.cpp   (detector + output) │
+│                         │   │  CircularBuffer (30s rolling)       │
+│ Generates:              │   │  SnapManager    (±2.5s extraction)  │
+│  - Simulated particles  │   │                                     │
+│  - Poisson hit rates    │   │ Reads from:                         │
+│  - [SEEs] messages      │   │  - Real SiPM detector (ADC pin A0)  │
+└─────────────────────────┘   │  - 10 kHz sampling rate             │
+                              └─────────────────────────────────────┘
+              │                             │
+              └──────────────┬──────────────┘
+                             │
+                             ▼
+                   SAME OUTPUT FORMAT
+                   ├─ [SEEs] status messages
+                   ├─ Commands: on, off, snap
+                   ├─ Data: time_ms,voltage_V,hit,cum_counts
+                   └─ Snap files: SEEs.YYYYMMDD.HHMMSS.csv
+```
+
+**Key insight**: If it works in simulation, it will work on real hardware.
+
 ## Pi 400 Remote Testing
 
 A dedicated Raspberry Pi 400 serves as the remote testing machine for both VIA and SEEs payloads.

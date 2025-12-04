@@ -12,13 +12,13 @@ How snap works:
 - When you type 'snap' at time T (e.g., 21:05:15):
   - Waits 2.5s to collect post-snap data
   - Extracts data from (T-2.5s) to (T+2.5s)
-  - Saves to: SEEs.YYYYMMDD.HHMMSS.csv (e.g., SEEs.20251113.210515.csv)
+  - Saves to: SEEs.YYYYMMDD.HHMM.SS.csv (e.g., SEEs.20251113.2105.15.csv)
 
 Directory structure:
 ~/Aeris/data/sees/YYYYMMDD.HHMM/
 ├── SEEs.YYYYMMDD.HHMM.log          (full session log)
 ├── SEEs.YYYYMMDD.HHMM.stream.csv   (streaming data when ON)
-├── SEEs.YYYYMMDD.HHMMSS.csv        (snap: ±2.5s around HHMMSS)
+├── SEEs.YYYYMMDD.HHMM.SS.csv       (snap: ±2.5s around HHMM.SS)
 └── ...
 
 Usage:
@@ -107,16 +107,16 @@ def create_session_directory():
 
 def generate_snap_filename(snap_time):
     """
-    Generate snap filename: SEEs.YYYYMMDD.HHMMSS.csv
+    Generate snap filename: SEEs.YYYYMMDD.HHMM.SS.csv
 
     Args:
         snap_time: Unix timestamp of snap command
 
     Returns:
-        Filename like "SEEs.20251113.210515.csv"
+        Filename like "SEEs.20251113.2105.15.csv"
     """
     dt = datetime.fromtimestamp(snap_time)
-    return f"SEEs.{dt.strftime('%Y%m%d.%H%M%S')}.csv"
+    return f"SEEs.{dt.strftime('%Y%m%d.%H%M.%S')}.csv"
 
 
 def generate_log_filename(session_timestamp):
