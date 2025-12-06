@@ -13,7 +13,7 @@ This is the code repository for the SEEs (Solar Energetic Events) Payload firmwa
 
 VIA controls timing. When VIA captures a spectrum, it pulses GPIO → SEEs and AMPPs capture synchronized ±2.5s windows → All three datasets bundled with VIA's timestamp → OBC packages for downlink.
 
-**Why Body Cam Mode:** SEEs and AMPPs don't track absolute time - they only count "1 second, 1 second, 1 second." The ±2.5s buffer captures what happened BEFORE the VIA trigger (pre-event particle flux) and AFTER (post-event response). This creates temporally-linked trimodal measurements of atmospheric chemistry during solar particle events.
+**Why Body Cam Mode:**  SEEs and AMPPs don't track absolute time - they only count "1 second, 1 second, 1 second." The ±2.5s buffer captures what happened BEFORE the VIA trigger (pre-event particle flux) and AFTER (post-event response). This creates temporally-linked trimodal measurements of atmospheric chemistry during solar particle events.
 
 SEEs payload uses a SiPM-based particle detector connected to Teensy 4.1 microcontroller.
 
