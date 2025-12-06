@@ -2,17 +2,16 @@
 """
 Virtual Serial Port for SEES Testing
 
-Simulates a Teensy 4.1 running SEES firmware (body cam mode) for testing without hardware.
-Creates a virtual serial port that behaves like the real Teensy.
+Pumps simulated ADC data to a virtual serial port.
+This is a DATA SOURCE ONLY - it does NOT simulate firmware behavior.
 
-Body cam mode: Data streams continuously from power-on.
-Commands: snap
+The data from this port should be fed INTO the firmware (native build or Teensy).
+The firmware handles all logic (circular buffer, snap, etc).
 
 Usage:
     python3 virtual_serial_port.py
 
-This creates /tmp/tty_sees virtual serial port that behaves like real hardware.
-Connect with: python3 scripts/sees_interactive.py /tmp/tty_sees
+This creates /tmp/tty_sees virtual serial port that streams ADC-like data.
 """
 
 import os
@@ -29,11 +28,11 @@ from test_data_generator import ParticleDetectorSimulator
 
 
 class VirtualSEEsPort:
-    """Virtual serial port that simulates SEES firmware (body cam mode)."""
+    """Virtual serial port that pumps simulated ADC data."""
 
     def __init__(self, port_path='/tmp/tty_sees'):
         """
-        Initialize virtual SEES port.
+        Initialize virtual data source.
 
         Args:
             port_path: Path where virtual serial port will be created
@@ -44,10 +43,9 @@ class VirtualSEEsPort:
         self.running = False
         self.simulator = ParticleDetectorSimulator(seed=42)
 
-        # State - ALWAYS streaming in body cam mode
+        # Data streaming state
         self.sample_index = 0
         self.current_data = []
-        self.snap_count = 0
 
     def create_virtual_port(self):
         """Create a virtual serial port using pty."""
@@ -82,71 +80,25 @@ class VirtualSEEsPort:
             print(f"❌ Symlink not created: {self.port_path}", file=sys.stderr)
             raise RuntimeError(f"Failed to create symlink: {self.port_path}")
 
-        print(f"✅ Virtual SEES port created: {self.port_path}")
+        print(f"✅ Virtual data source created: {self.port_path}")
         print(f"   (Real device: {slave_name})")
         print()
-        print("Connect with:")
-        print(f"  python3 scripts/sees_interactive.py {self.port_path}")
-        print()
-        print("Body cam mode: ALWAYS streaming")
-        print("Command: snap")
+        print("This is a DATA SOURCE - feed into firmware for processing")
         print("Press Ctrl+C to stop")
         print()
 
-    def send_message(self, message):
-        """Send a message to the connected client."""
+    def send_data(self, data):
+        """Send data to the port."""
         if self.master_fd:
-            os.write(self.master_fd, message.encode())
-
-    def send_boot_message(self):
-        """Send boot message matching real SEES firmware (body cam mode)."""
-        boot_msg = (
-            "[SEEs] ====================================\r\n"
-            "[SEEs] SEEs Particle Detector - Starting\r\n"
-            "[SEEs] ====================================\r\n"
-            "[SEEs] SD card ready\r\n"
-            "[SEEs] Initializing circular buffer...\r\n"
-            "[CircularBuffer] Initialized (hits-only mode)\r\n"
-            "[CircularBuffer]   Capacity: 30000 hits\r\n"
-            "[CircularBuffer]   Memory: 240 KB\r\n"
-            "[SnapManager] Initialized\r\n"
-            "[SnapManager]   Window: +/-2.5 seconds\r\n"
-            "[SnapManager]   Output: snaps/\r\n"
-            "[SEEs] Body cam mode: ALWAYS streaming\r\n"
-            "[SEEs] Commands: snap\r\n"
-            "[SEEs] Data format: time_ms,voltage_V,hit,total_hits\r\n"
-            "[SEEs] ====================================\r\n"
-            "[SEEs] Ready - buffer recording started\r\n"
-            "[SEEs] ====================================\r\n"
-        )
-        self.send_message(boot_msg)
-
-    def handle_command(self, command):
-        """
-        Handle incoming command from client.
-        Matches real SEES firmware behavior (body cam mode - only snap command).
-
-        Args:
-            command: Command string
-        """
-        cmd = command.strip().lower()
-
-        if cmd == 'snap':
-            # Just echo the command - the real firmware handles everything
-            self.send_message("[SEEs] SNAP command received\r\n")
-            print("📸 SNAP command received")
-
-        elif cmd and cmd not in ('', '\r', '\n'):
-            self.send_message(f"[SEEs] Unknown command: {cmd}\r\n")
+            os.write(self.master_fd, data.encode())
 
     def stream_data(self):
-        """Stream data samples continuously (body cam mode).
+        """Stream ADC data samples continuously.
 
         Sends batches of 25 samples per call to achieve effective 10kHz rate
         when called every 1ms.
         """
         if self.current_data:
-            # Send 25 samples per call to achieve ~10kHz effective rate
             batch_size = 25
             lines = []
 
@@ -166,66 +118,32 @@ class VirtualSEEsPort:
                     break
 
             if lines:
-                self.send_message(''.join(lines))
+                self.send_data(''.join(lines))
 
     def run(self):
-        """Main loop for virtual serial port."""
+        """Main loop - just pump data."""
         self.create_virtual_port()
         self.running = True
 
-        # Generate initial dataset - body cam mode starts immediately
-        print("📊 Body cam mode: generating initial data...")
+        # Generate initial dataset
+        print("📊 Generating initial data...")
         self.current_data = self.simulator.generate_dataset(
             duration_seconds=60.0,
             hit_rate_hz=5.0
         )
         self.sample_index = 0
 
-        # Wait for connection to stabilize before sending anything
+        # Wait for connection to stabilize
         time.sleep(0.2)
-
-        # Flush any garbage from initial connection
-        try:
-            readable, _, _ = select.select([self.master_fd], [], [], 0.1)
-            if readable:
-                os.read(self.master_fd, 1024)  # Discard initial garbage
-        except OSError:
-            pass
-
-        # Send boot message (matches real firmware)
-        self.send_boot_message()
-
-        command_buffer = ""
 
         try:
             while self.running:
-                # Check for incoming data
-                readable, _, _ = select.select([self.master_fd], [], [], 0.001)
-
-                if readable:
-                    try:
-                        data = os.read(self.master_fd, 1024)
-                        if data:
-                            text = data.decode('utf-8', errors='ignore')
-
-                            for char in text:
-                                if char == '\r' or char == '\n':
-                                    if command_buffer:
-                                        self.handle_command(command_buffer)
-                                        command_buffer = ""
-                                else:
-                                    command_buffer += char
-
-                    except OSError:
-                        # Client disconnected
-                        pass
-
-                # ALWAYS stream data - body cam mode
+                # Just pump data - nothing else
                 self.stream_data()
                 time.sleep(0.001)
 
         except KeyboardInterrupt:
-            print("\n⏹️  Stopping virtual serial port...")
+            print("\n⏹️  Stopping data source...")
 
         finally:
             self.cleanup()
@@ -242,11 +160,11 @@ class VirtualSEEsPort:
         if os.path.exists(self.port_path):
             os.remove(self.port_path)
 
-        print("✅ Virtual port closed")
+        print("✅ Data source closed")
 
 
 def main():
-    """Create and run virtual SEES port."""
+    """Create and run virtual data source."""
     port = VirtualSEEsPort()
     port.run()
 

@@ -12,9 +12,9 @@ on:
   workflow_dispatch:  # Manual trigger
 
 jobs:
-  build:
+  # Build Teensy firmware (.hex)
+  build-teensy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,14 +29,58 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
-      - name: Build firmware
+      - name: Build Teensy firmware
         run: |
           cd SEEsDriver
           pio run
 
-      - name: Upload firmware artifact
+      - name: Upload Teensy firmware
         uses: actions/upload-artifact@v4
         with:
           name: sees-firmware
           path: SEEsDriver/.pio/build/teensy41/firmware.hex
+          retention-days: 90
+
+  # Build native Linux binary for simulation (x86_64)
+  build-native-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build native binary (x86_64)
+        run: |
+          cd SEEsDriver/native
+          make
+          mv sees_native sees_native_x64
+
+      - name: Upload native binary (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sees-native-x64
+          path: SEEsDriver/native/sees_native_x64
+          retention-days: 90
+
+  # Build native Linux binary for Pi 400 (aarch64)
+  build-native-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up cross-compilation for ARM64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-aarch64-linux-gnu
+
+      - name: Build native binary (ARM64)
+        run: |
+          cd SEEsDriver/native
+          make CXX=aarch64-linux-gnu-g++ TARGET=sees_native_arm64
+
+      - name: Upload native binary (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sees-native-arm64
+          path: SEEsDriver/native/sees_native_arm64
           retention-days: 90

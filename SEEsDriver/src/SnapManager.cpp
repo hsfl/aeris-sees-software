@@ -108,8 +108,8 @@ String SnapManager::generateFilename(uint32_t triggerTimeUs) {
     char filename[64];
 
     // Format: snap_NNNNN_TTTTTTTTTT.csv
-    snprintf(filename, sizeof(filename), "%ssnap_%05lu_%010lu.csv",
-             _outputDir.c_str(), _snapCount, triggerTimeUs);
+    snprintf(filename, sizeof(filename), "%ssnap_%05u_%010u.csv",
+             _outputDir.c_str(), (unsigned)_snapCount, (unsigned)triggerTimeUs);
 
     return String(filename);
 }
