@@ -67,7 +67,8 @@ class VirtualSEEsPort:
 
         # Create symlink to make it accessible
         try:
-            if os.path.exists(self.port_path):
+            # Use islink to catch broken symlinks (exists returns False for broken links)
+            if os.path.islink(self.port_path) or os.path.exists(self.port_path):
                 os.remove(self.port_path)
 
             slave_name = os.ttyname(self.slave_fd)
