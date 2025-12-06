@@ -1,6 +1,6 @@
 # Makefile for SEEs Native Linux Build
 #
-# Builds the firmware for Linux simulation testing.
+# Builds the SEEs firmware for Linux simulation testing.
 # The native binary reads ADC data from a virtual serial port.
 #
 # Cross-compilation for ARM64 (Pi 400):
