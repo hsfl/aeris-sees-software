@@ -132,15 +132,9 @@ class VirtualSEEsPort:
         cmd = command.strip().lower()
 
         if cmd == 'snap':
-            self.snap_count += 1
+            # Just echo the command - the real firmware handles everything
             self.send_message("[SEEs] SNAP command received\r\n")
-            # Simulate snap capture delay
-            time.sleep(0.05)
-            self.send_message(f"[SnapManager] Extracting +/-2.5s window...\r\n")
-            self.send_message(f"[SnapManager]   Extracted 47 hits\r\n")
-            self.send_message(f"[SnapManager] Snap saved: snaps/snap_{self.snap_count:05d}_{int(time.time()*1000000):010d}.csv\r\n")
-            self.send_message(f"[SEEs] Snap captured! Total snaps: {self.snap_count}\r\n")
-            print(f"📸 SNAP #{self.snap_count} triggered")
+            print("📸 SNAP command received")
 
         elif cmd and cmd not in ('', '\r', '\n'):
             self.send_message(f"[SEEs] Unknown command: {cmd}\r\n")

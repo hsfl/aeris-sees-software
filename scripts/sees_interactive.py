@@ -165,6 +165,10 @@ def interactive_console(port, verbose=False):
     last_data_time = 0
     data_count = 0
 
+    # Snap capture state
+    capturing_snap = False
+    snap_data = []
+
     # Line buffer for processing complete lines
     line_buffer = ""
 
@@ -265,9 +269,35 @@ def interactive_console(port, verbose=False):
 
                     # Handle snap responses from Teensy
                     if '[SEEs] SNAP command received' in line_clean:
-                        snap_count += 1
-                        sys.stdout.write(f"\r\033[K📸 SNAP #{snap_count} - Teensy saving to SD card...\n")
+                        sys.stdout.write(f"\r\033[K📸 SNAP - capturing...\n")
                         sys.stdout.flush()
+                        continue
+
+                    # Start capturing snap data
+                    if line_clean == '[SNAP_START]':
+                        capturing_snap = True
+                        snap_data = []
+                        snap_count += 1
+                        continue
+
+                    # End of snap data - save to file
+                    if line_clean == '[SNAP_END]':
+                        if capturing_snap and snap_data:
+                            snap_timestamp = datetime.now().strftime("%H%M%S")
+                            snap_filename = f"SEEs.{session_timestamp}.{snap_timestamp}.csv"
+                            snap_path = session_dir / snap_filename
+                            with open(snap_path, 'w') as sf:
+                                for snap_line in snap_data:
+                                    sf.write(snap_line + '\n')
+                            sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)-4} hits)\n")
+                            sys.stdout.flush()
+                        capturing_snap = False
+                        snap_data = []
+                        continue
+
+                    # Collect snap data lines
+                    if capturing_snap:
+                        snap_data.append(line_clean)
                         continue
 
                     if '[SEEs] Snap captured' in line_clean:

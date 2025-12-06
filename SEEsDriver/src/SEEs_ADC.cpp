@@ -88,7 +88,13 @@ void SEEs_ADC::processCommand(const String& cmd) {
 
     if (cmdLower == "snap") {
         Serial.println("[SEEs] SNAP command received");
+        Serial.println("[SEEs] Waiting 2.5s for post-trigger data...");
         uint32_t snapTime = micros();
+
+        // Wait 2.5 seconds to capture post-trigger data
+        // Buffer continues recording during this delay
+        delay(2500);
+
         if (_snapManager.captureSnap(_circularBuffer, snapTime)) {
             Serial.print("[SEEs] Snap captured! Total snaps: ");
             Serial.println(_snapManager.getSnapCount());

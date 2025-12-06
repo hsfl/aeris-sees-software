@@ -71,19 +71,37 @@ bool SnapManager::captureSnap(CircularBuffer& buffer, uint32_t triggerTimeUs) {
     Serial.print(count);
     Serial.println(" hits");
 
-    // Generate filename and write to SD
-    String filename = generateFilename(triggerTimeUs);
-    bool success = writeSnapFile(filename, hits, count, triggerTimeUs);
+    // Send snap data over Serial (always - for RPi to capture)
+    Serial.println("[SNAP_START]");
+    Serial.print("# Trigger: ");
+    Serial.println(triggerTimeUs);
+    Serial.print("# Window: ");
+    Serial.println(_windowSeconds, 1);
+    Serial.print("# Hits: ");
+    Serial.println(count);
+    Serial.println("timestamp_us,layers");
+    for (size_t i = 0; i < count; i++) {
+        Serial.print(hits[i].timestamp_us);
+        Serial.print(',');
+        Serial.println(hits[i].layers);
+    }
+    Serial.println("[SNAP_END]");
 
-    delete[] hits;
-
-    if (success) {
-        _snapCount++;
-        Serial.print("[SnapManager] Snap saved: ");
-        Serial.println(filename);
+    // Write to SD if available
+    bool success = false;
+    if (_sdAvailable) {
+        String filename = generateFilename(triggerTimeUs);
+        success = writeSnapFile(filename, hits, count, triggerTimeUs);
+        if (success) {
+            Serial.print("[SnapManager] SD saved: ");
+            Serial.println(filename);
+        }
     }
 
-    return success;
+    delete[] hits;
+    _snapCount++;
+
+    return true;  // Snap was sent over serial even if SD failed
 }
 
 String SnapManager::generateFilename(uint32_t triggerTimeUs) {
