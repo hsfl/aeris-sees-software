@@ -1,6 +1,6 @@
 /**
  * @file SnapManager.cpp
- * @brief Implementation of snapshot capture manager
+ * @brief Implementation of snapshot capture manager (hits-only)
  */
 
 #include "SnapManager.hpp"
@@ -30,7 +30,7 @@ bool SnapManager::begin(bool sdAvailable) {
     }
 
     Serial.println("[SnapManager] Initialized");
-    Serial.print("[SnapManager]   Window: ±");
+    Serial.print("[SnapManager]   Window: +/-");
     Serial.print(_windowSeconds, 1);
     Serial.println(" seconds");
     Serial.print("[SnapManager]   Output: ");
@@ -51,41 +51,35 @@ bool SnapManager::captureSnap(CircularBuffer& buffer, uint32_t triggerTimeUs) {
     }
 
     // Allocate temporary extraction buffer
-    // Worst case: ±2.5s @ 10kHz = 50,000 samples
-    const size_t maxSamples = (size_t)(_windowSeconds * 2.0f * 10000.0f);
-    DetectorSample* samples = new (std::nothrow) DetectorSample[maxSamples];
+    // Max ~5000 hits in a 5s window during extreme burst (1000 hits/s)
+    const size_t maxHits = 5000;
+    HitRecord* hits = new (std::nothrow) HitRecord[maxHits];
 
-    if (!samples) {
+    if (!hits) {
         Serial.println("[SnapManager] ERROR: Failed to allocate extraction buffer");
         return false;
     }
 
     // Extract window from circular buffer
-    Serial.print("[SnapManager] Extracting ±");
+    Serial.print("[SnapManager] Extracting +/-");
     Serial.print(_windowSeconds, 1);
     Serial.println("s window...");
 
-    size_t count = buffer.extractWindow(triggerTimeUs, _windowSeconds, samples, maxSamples);
-
-    if (count == 0) {
-        Serial.println("[SnapManager] WARNING: No samples in time window");
-        delete[] samples;
-        return false;
-    }
+    size_t count = buffer.extractWindow(triggerTimeUs, _windowSeconds, hits, maxHits);
 
     Serial.print("[SnapManager]   Extracted ");
     Serial.print(count);
-    Serial.println(" samples");
+    Serial.println(" hits");
 
     // Generate filename and write to SD
     String filename = generateFilename(triggerTimeUs);
-    bool success = writeSnapFile(filename, samples, count, triggerTimeUs);
+    bool success = writeSnapFile(filename, hits, count, triggerTimeUs);
 
-    delete[] samples;
+    delete[] hits;
 
     if (success) {
         _snapCount++;
-        Serial.print("[SnapManager] ✓ Snap saved: ");
+        Serial.print("[SnapManager] Snap saved: ");
         Serial.println(filename);
     }
 
@@ -96,15 +90,13 @@ String SnapManager::generateFilename(uint32_t triggerTimeUs) {
     char filename[64];
 
     // Format: snap_NNNNN_TTTTTTTTTT.csv
-    // NNNNN = snap counter (5 digits)
-    // TTTTTTTTTT = trigger timestamp in microseconds (10 digits)
     snprintf(filename, sizeof(filename), "%ssnap_%05lu_%010lu.csv",
              _outputDir.c_str(), _snapCount, triggerTimeUs);
 
     return String(filename);
 }
 
-bool SnapManager::writeSnapFile(const String& filename, DetectorSample* samples,
+bool SnapManager::writeSnapFile(const String& filename, HitRecord* hits,
                                  size_t count, uint32_t triggerTimeUs) {
     File snapFile = SD.open(filename.c_str(), FILE_WRITE);
 
@@ -115,39 +107,28 @@ bool SnapManager::writeSnapFile(const String& filename, DetectorSample* samples,
     }
 
     // Write header with metadata
-    snapFile.print("# SEEs Snapshot - Captured at: ");
+    snapFile.print("# SEEs Snap - Trigger: ");
     snapFile.print(triggerTimeUs / 1000000.0, 6);
     snapFile.println(" seconds");
 
-    snapFile.print("# Window: ±");
+    snapFile.print("# Window: +/-");
     snapFile.print(_windowSeconds, 1);
     snapFile.print(" seconds (");
     snapFile.print(_windowSeconds * 2.0, 1);
     snapFile.println(" seconds total)");
 
-    snapFile.print("# Samples: ");
+    snapFile.print("# Hits: ");
     snapFile.println(count);
 
-    snapFile.println("# Format: time_ms,voltage_V,hit,layers,cum_counts,timestamp_us");
-
     // Write CSV header
-    snapFile.println("time_ms,voltage_V,hit,layers,cum_counts,timestamp_us");
+    snapFile.println("timestamp_us,layers");
 
-    // Write all samples
+    // Write all hits
     for (size_t i = 0; i < count; i++) {
-        const DetectorSample& s = samples[i];
-
-        snapFile.print(s.time_ms, 3);
+        const HitRecord& h = hits[i];
+        snapFile.print(h.timestamp_us);
         snapFile.print(',');
-        snapFile.print(s.voltage, 4);
-        snapFile.print(',');
-        snapFile.print(s.hit);
-        snapFile.print(',');
-        snapFile.print(s.layers);
-        snapFile.print(',');
-        snapFile.print(s.cum_counts);
-        snapFile.print(',');
-        snapFile.println(s.timestamp);
+        snapFile.println(h.layers);
     }
 
     snapFile.flush();

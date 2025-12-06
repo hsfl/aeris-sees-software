@@ -1,35 +1,29 @@
 #!/usr/bin/env python3
 """
-SEEs Interactive Console with Command Control
+SEEs Interactive Console - Body Cam Mode
+
+The Teensy is ALWAYS streaming data (body cam mode).
+The Teensy maintains the circular buffer and saves snaps to its SD card.
+This console just logs the stream to the computer and forwards commands.
 
 Commands:
-- on   - Start data collection (streams CSV data)
-- off  - Stop data collection
-- snap - Save ±2.5s window from 30-second circular buffer
-
-How snap works:
-- Maintains 30s rolling buffer of data
-- When you type 'snap' at time T (e.g., 21:05:15):
-  - Waits 2.5s to collect post-snap data
-  - Extracts data from (T-2.5s) to (T+2.5s)
-  - Saves to: SEEs.YYYYMMDD.HHMM.SS.csv (e.g., SEEs.20251113.2105.15.csv)
+- snap - Tell Teensy to save ±2.5s window to SD card
 
 Directory structure:
 ~/Aeris/data/sees/YYYYMMDD.HHMM/
-├── SEEs.YYYYMMDD.HHMM.log          (full session log)
-├── SEEs.YYYYMMDD.HHMM.stream.csv   (streaming data when ON)
-├── SEEs.YYYYMMDD.HHMM.SS.csv       (snap: ±2.5s around HHMM.SS)
+├── SEEs.YYYYMMDD.HHMM.log          (full session log - raw serial)
+├── SEEs.YYYYMMDD.HHMM.stream.csv   (full streaming data - parsed CSV)
 └── ...
+
+Snaps are saved on Teensy SD card: snaps/snap_NNNNN_TTTTTTTTTT.csv
 
 Usage:
     python3 sees_interactive.py /dev/ttyACM0
     python3 sees_interactive.py /dev/ttyACM0 -v    # Verbose mode
 
 Controls:
-    on   - Start collecting (builds 30s buffer)
-    off  - Stop collecting
-    snap - Capture ±2.5s window centered on snap time
-    Ctrl+C to exit
+    snap   - Capture ±2.5s window (saved to Teensy SD card)
+    Ctrl+C - Exit
 """
 
 import serial
@@ -40,60 +34,10 @@ import tty
 import argparse
 from datetime import datetime
 from pathlib import Path
-from collections import deque
 import time
 
 # Configuration
-BUFFER_DURATION = 30.0  # seconds of rolling buffer to maintain
-SNAP_WINDOW = 2.5  # seconds before and after snap (±2.5s = 5s total)
 BAUD_RATE = 115200
-
-class CircularBuffer:
-    """Time-based circular buffer for data"""
-
-    def __init__(self, duration_seconds):
-        self.duration = duration_seconds
-        self.buffer = deque()
-
-    def add(self, timestamp, data_line):
-        """Add a data point with timestamp"""
-        self.buffer.append((timestamp, data_line))
-        self._cleanup_old_entries(timestamp)
-
-    def _cleanup_old_entries(self, current_time):
-        """Remove entries older than buffer duration"""
-        cutoff_time = current_time - self.duration
-        while self.buffer and self.buffer[0][0] < cutoff_time:
-            self.buffer.popleft()
-
-    def get_all(self):
-        """Get all buffered data"""
-        return [data for _, data in self.buffer]
-
-    def get_window(self, center_time, window_seconds):
-        """
-        Get data within ±window_seconds of center_time
-
-        Args:
-            center_time: Center timestamp (Unix time)
-            window_seconds: Half-width of window in seconds
-
-        Returns:
-            List of data lines within [center_time - window, center_time + window]
-        """
-        start_time = center_time - window_seconds
-        end_time = center_time + window_seconds
-
-        window_data = []
-        for timestamp, data in self.buffer:
-            if start_time <= timestamp <= end_time:
-                window_data.append(data)
-
-        return window_data
-
-    def clear(self):
-        """Clear the buffer"""
-        self.buffer.clear()
 
 
 def create_session_directory():
@@ -103,20 +47,6 @@ def create_session_directory():
     session_dir = base_dir / session_timestamp
     session_dir.mkdir(parents=True, exist_ok=True)
     return session_dir, session_timestamp
-
-
-def generate_snap_filename(snap_time):
-    """
-    Generate snap filename: SEEs.YYYYMMDD.HHMM.SS.csv
-
-    Args:
-        snap_time: Unix timestamp of snap command
-
-    Returns:
-        Filename like "SEEs.20251113.2105.15.csv"
-    """
-    dt = datetime.fromtimestamp(snap_time)
-    return f"SEEs.{dt.strftime('%Y%m%d.%H%M.%S')}.csv"
 
 
 def generate_log_filename(session_timestamp):
@@ -131,7 +61,7 @@ def generate_stream_filename(session_timestamp):
 
 def parse_data_line(line):
     """
-    Parse CSV data line: time_ms,voltage_V,hit,cum_counts
+    Parse CSV data line: time_ms,voltage_V,hit,total_hits
     Returns parsed line or None if not valid data
     """
     line = line.strip()
@@ -148,14 +78,14 @@ def parse_data_line(line):
     if line[0].isalpha() or line[0] in '═─✅📸📊⏸':
         return None
 
-    # Validate CSV format: time_ms,voltage_V,hit,cum_counts
+    # Validate CSV format: time_ms,voltage_V,hit,total_hits
     parts = line.split(',')
     if len(parts) == 4:
         try:
             float(parts[0])  # time_ms
             float(parts[1])  # voltage_V
             int(parts[2])    # hit
-            int(parts[3])    # cum_counts
+            int(parts[3])    # total_hits
             return line
         except ValueError:
             return None
@@ -167,7 +97,6 @@ def is_data_like(line):
     """
     Check if a line looks like it might be data (numeric with commas).
     Used to suppress partial/malformed data lines in non-verbose mode.
-    Catches cases like "s3362.6,0.0804,0,12" where echoed chars prepend data.
     """
     line = line.strip()
     if not line:
@@ -178,13 +107,10 @@ def is_data_like(line):
         return True
 
     # Check if it contains comma-separated numbers (data with echo prefix)
-    # Pattern: anything followed by digits, comma, digits
     if ',' in line:
         parts = line.split(',')
-        # If we have 4 parts and the last 3 look numeric, it's corrupted data
         if len(parts) >= 3:
             try:
-                # Try parsing the last few parts as numbers
                 float(parts[-3].lstrip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'))
                 float(parts[-2])
                 float(parts[-1])
@@ -196,7 +122,7 @@ def is_data_like(line):
 
 
 def interactive_console(port, verbose=False):
-    """Interactive console with command control"""
+    """Interactive console - logs stream and forwards commands to Teensy"""
 
     # Create session directory
     session_dir, session_timestamp = create_session_directory()
@@ -206,7 +132,7 @@ def interactive_console(port, verbose=False):
     stream_file_path = session_dir / stream_filename
 
     print("═══════════════════════════════════════════════════")
-    print("  SEEs Interactive Console")
+    print("  SEEs Interactive Console - Body Cam Mode")
     print("═══════════════════════════════════════════════════")
     print(f"  Port:         {port}")
     print(f"  Session dir:  {session_dir}")
@@ -215,8 +141,8 @@ def interactive_console(port, verbose=False):
     print(f"  Verbose:      {'ON' if verbose else 'OFF'}")
     print("═══════════════════════════════════════════════════")
     print()
-    print("Commands: on, off, snap")
-    print("Type commands, Ctrl+C to exit")
+    print("Command: snap (saves ±2.5s to Teensy SD card)")
+    print("Ctrl+C to exit")
     if not verbose:
         print("Use -v flag for full streaming data output")
     print()
@@ -231,15 +157,13 @@ def interactive_console(port, verbose=False):
     # Open log files
     log_file = open(log_file_path, 'w', buffering=1)
     stream_file = open(stream_file_path, 'w', buffering=1)
-    stream_file.write("time_ms,voltage_V,hit,cum_counts\n")
+    stream_file.write("time_ms,voltage_V,hit,total_hits\n")
 
     # State tracking
-    circular_buffer = CircularBuffer(BUFFER_DURATION)
-    pending_snaps = []  # List of (snap_time, snap_count) tuples waiting to complete
     snap_count = 0
-    data_streaming = False  # Track if data is actively streaming
-    last_data_time = 0  # Last time we received data
-    data_count = 0  # Count data lines for status indicator
+    data_streaming = False
+    last_data_time = 0
+    data_count = 0
 
     # Line buffer for processing complete lines
     line_buffer = ""
@@ -265,8 +189,7 @@ def interactive_console(port, verbose=False):
             if data_streaming and (current_time - last_data_time) > 0.5:
                 data_streaming = False
                 if not verbose:
-                    # Clear the status line and show prompt
-                    sys.stdout.write(f"\r\033[K")  # Clear line
+                    sys.stdout.write(f"\r\033[K")
                     sys.stdout.write(f"SEEs> {input_buffer}")
                     sys.stdout.flush()
 
@@ -285,7 +208,7 @@ def interactive_console(port, verbose=False):
                 if char == '\r':
                     if not data_streaming:
                         sys.stdout.write('\n')
-                    input_buffer = ""  # Clear on enter
+                    input_buffer = ""
                 elif char == '\x7f':  # Backspace
                     if input_buffer:
                         input_buffer = input_buffer[:-1]
@@ -293,7 +216,6 @@ def interactive_console(port, verbose=False):
                             sys.stdout.write('\b \b')
                 else:
                     input_buffer += char
-                    # Only echo when not streaming - during streaming it corrupts output
                     if not data_streaming:
                         sys.stdout.write(char)
                 if not data_streaming:
@@ -304,7 +226,7 @@ def interactive_console(port, verbose=False):
                 data = ser.read(ser.in_waiting)
                 text = data.decode('utf-8', errors='ignore')
 
-                # Write to log file (always)
+                # Write to log file (always - raw serial data)
                 log_file.write(text)
 
                 # Add to line buffer for processing
@@ -313,126 +235,69 @@ def interactive_console(port, verbose=False):
                 # Process complete lines only
                 while '\n' in line_buffer:
                     line, line_buffer = line_buffer.split('\n', 1)
-                    # Strip whitespace and \r from both ends
                     line_clean = line.strip().strip('\r')
                     parsed_line = parse_data_line(line)
 
                     if parsed_line:
-                        # Data line - always silent in non-verbose mode
+                        # Data line
                         last_data_time = current_time
                         data_count += 1
 
-                        # Update streaming state and indicator (non-verbose only)
                         if not verbose:
                             if not data_streaming:
                                 data_streaming = True
-                            # Update indicator every 100 lines
                             if data_count % 100 == 0:
                                 sys.stdout.write(f"\r\033[K[streaming... {data_count} lines]")
                                 sys.stdout.flush()
 
-                        # Add to circular buffer (always maintain 30s rolling buffer)
-                        circular_buffer.add(current_time, parsed_line)
-
                         # Write to streaming CSV
                         stream_file.write(parsed_line + '\n')
 
-                        # In verbose mode, show the data
                         if verbose:
                             sys.stdout.write(f"\r{line_clean}\n")
                             sys.stdout.flush()
 
-                        # Don't process further - this was a data line
                         continue
 
-                    # In non-verbose mode, suppress anything that looks like data
+                    # Suppress data-like lines in non-verbose mode
                     if not verbose and is_data_like(line_clean):
                         continue
 
-                    # Handle [SEEs] status messages FIRST - before any filtering
-                    # Detect snap command response
+                    # Handle snap responses from Teensy
                     if '[SEEs] SNAP command received' in line_clean:
                         snap_count += 1
-                        snap_time = current_time
-                        pending_snaps.append((snap_time, snap_count))
-
-                        # Clear any streaming indicator and show snap message
-                        sys.stdout.write(f"\r\033[K📸 SNAP #{snap_count} at {datetime.fromtimestamp(snap_time).strftime('%H:%M:%S')}\n")
-                        sys.stdout.write(f"\r\033[K   Waiting {SNAP_WINDOW}s to collect post-snap data...\n")
+                        sys.stdout.write(f"\r\033[K📸 SNAP #{snap_count} - Teensy saving to SD card...\n")
                         sys.stdout.flush()
                         continue
 
-                    # Handle [SEEs] status messages - always show these prominently
+                    if '[SEEs] Snap captured' in line_clean:
+                        sys.stdout.write(f"\r\033[K✅ {line_clean}\n")
+                        sys.stdout.flush()
+                        continue
+
+                    # Handle [SEEs] status messages
                     if line_clean.startswith('[SEEs]'):
-                        # Clear current line (may have streaming indicator), print message on fresh line
-                        sys.stdout.write(f"\r\033[K")  # Clear any streaming indicator
-                        sys.stdout.write(f"{line_clean}\n")
-                        sys.stdout.write(f"\r")  # Position cursor at start of new line for next indicator
-                        # Reset data_count so streaming indicator starts fresh after status message
+                        sys.stdout.write(f"\r\033[K{line_clean}\n")
                         data_count = 0
                         sys.stdout.flush()
                         continue
 
-                    # Skip short lines and command echo artifacts in non-verbose mode
-                    # (After [SEEs] checks so status messages aren't filtered)
+                    # Skip short lines and command echoes in non-verbose mode
                     if not verbose:
-                        # Skip very short lines (echo artifacts)
                         if len(line_clean) <= 4:
                             continue
-                        # Skip lines that look like typed commands or their echoes
                         if line_clean.lower() in ('on', 'off', 'snap', 'help'):
                             continue
 
                     if line_clean:
-                        # Non-data line (status message, command response, etc.)
-                        # Clear streaming indicator if needed
                         if data_streaming and not verbose:
                             sys.stdout.write("\r\033[K")
                         sys.stdout.write(f"\r{line_clean}\n")
                         sys.stdout.flush()
 
-                        # If not streaming in non-verbose mode, redraw prompt
                         if not data_streaming and not verbose:
                             sys.stdout.write(f"SEEs> {input_buffer}")
                             sys.stdout.flush()
-
-            # Check for completed snaps (wait SNAP_WINDOW seconds after snap to collect ±window)
-            completed_snaps = []
-            for snap_time, snap_num in pending_snaps:
-                elapsed = current_time - snap_time
-                if elapsed >= SNAP_WINDOW:
-                    # Extract ±SNAP_WINDOW seconds around snap_time
-                    window_data = circular_buffer.get_window(snap_time, SNAP_WINDOW)
-
-                    # Save snap to file
-                    snap_filename = generate_snap_filename(snap_time)
-                    snap_path = session_dir / snap_filename
-
-                    dt = datetime.fromtimestamp(snap_time)
-                    with open(snap_path, 'w') as f:
-                        f.write("===SEEs SNAP START===\n")
-                        f.write(f"Snap time: {dt.strftime('%Y%m%d %H:%M:%S.%f')[:-3]}\n")
-                        f.write(f"Window: ±{SNAP_WINDOW}s ({SNAP_WINDOW * 2}s total)\n")
-                        f.write(f"Start: {datetime.fromtimestamp(snap_time - SNAP_WINDOW).strftime('%H:%M:%S.%f')[:-3]}\n")
-                        f.write(f"End:   {datetime.fromtimestamp(snap_time + SNAP_WINDOW).strftime('%H:%M:%S.%f')[:-3]}\n")
-                        f.write(f"Frames: {len(window_data)}\n")
-                        f.write("time_ms,voltage_V,hit,cum_counts\n")
-
-                        for data_line in window_data:
-                            f.write(data_line + '\n')
-
-                        f.write("===SEEs SNAP END===\n")
-
-                    sys.stdout.write(f"\r\033[K✅ SNAP #{snap_num} SAVED: {snap_filename}\n")
-                    sys.stdout.write(f"\r\033[K   Window: {dt.strftime('%H:%M:%S')} ±{SNAP_WINDOW}s\n")
-                    sys.stdout.write(f"\r\033[K   Frames: {len(window_data)}\n")
-                    sys.stdout.flush()
-
-                    completed_snaps.append((snap_time, snap_num))
-
-            # Remove completed snaps from pending list
-            for completed in completed_snaps:
-                pending_snaps.remove(completed)
 
     except KeyboardInterrupt:
         pass
@@ -444,30 +309,30 @@ def interactive_console(port, verbose=False):
         stream_file.close()
         ser.close()
         print("\n\n✅ Session closed")
-        print(f"📁 Data saved in: {session_dir}")
-        print(f"   Snaps captured: {snap_count}")
+        print(f"📁 Stream saved: {session_dir}")
+        print(f"   Snaps on Teensy SD: {snap_count}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="SEEs Interactive Console with Command Control",
+        description="SEEs Interactive Console - Body Cam Mode",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python3 sees_interactive.py /dev/ttyACM0           # Normal mode (clean output)
-  python3 sees_interactive.py /dev/ttyACM0 -v        # Verbose mode (full streaming data)
-  python3 sees_interactive.py /tmp/tty_sees          # Virtual serial port
+  python3 sees_interactive.py /dev/ttyACM0           # Normal mode
+  python3 sees_interactive.py /dev/ttyACM0 -v        # Verbose mode
+  python3 sees_interactive.py /tmp/tty_sees          # Simulation
 
-In-console commands:
-  on         - Start data collection
-  off        - Stop data collection
-  snap       - Capture ±2.5s window
+Body cam mode: Teensy streams continuously. Snaps saved to Teensy SD card.
+
+Commands:
+  snap       - Capture ±2.5s window to Teensy SD card
   Ctrl+C     - Exit
         """
     )
-    parser.add_argument("port", help="Serial port (e.g., /dev/ttyACM0 or /tmp/tty_sees)")
+    parser.add_argument("port", help="Serial port (e.g., /dev/ttyACM0)")
     parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Verbose mode - show full streaming data output")
+                        help="Show full streaming data output")
 
     args = parser.parse_args()
     interactive_console(args.port, verbose=args.verbose)

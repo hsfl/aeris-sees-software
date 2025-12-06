@@ -74,7 +74,7 @@ private:
     uint32_t _next_sample_us;
     uint32_t _lastBlink;
     uint32_t _last_hit_us;
-    uint32_t _cum_counts;
+    uint32_t _totalHits;
     uint32_t _lines_since_flush;
 
     float _countsPerVolt;

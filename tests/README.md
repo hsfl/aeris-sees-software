@@ -47,7 +47,7 @@ python3 test_data_generator.py --duration 30 --hit-rate 20 --output custom_test.
 
 Simulates Teensy 4.1 SEES firmware for testing without hardware:
 - Creates `/tmp/tty_sees` virtual serial port
-- Responds to `on`, `off`, `snap` commands
+- Responds to `snap` command (body cam mode - always streaming)
 - Streams realistic particle detector data
 - Full console simulation
 
@@ -79,7 +79,7 @@ Runs complete test suite:
 
 Generated CSV data matches SEES firmware output:
 ```csv
-time_ms,voltage_V,hit,cum_counts
+time_ms,voltage_V,hit,total_hits
 0.0,0.0982,0,0
 0.1,0.1015,0,0
 0.2,0.5234,1,1
@@ -91,7 +91,7 @@ Where:
 - `time_ms`: Timestamp in milliseconds
 - `voltage_V`: ADC voltage (0-3.3V)
 - `hit`: Binary flag (1 if in detection window 0.30-0.80V)
-- `cum_counts`: Cumulative particle count
+- `total_hits`: Cumulative particle count
 
 ## Testing Workflow
 

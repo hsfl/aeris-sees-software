@@ -140,9 +140,9 @@ The firmware uses windowed detection on the ADC input:
 
 ### Data Output Formats
 
-- **Live CSV stream**: `time_ms,voltage_V,hit,cum_counts`
+- **Live CSV stream**: `time_ms,voltage_V,hit,total_hits`
 - **Snap files**: `snaps/snap_NNNNN_<timestamp>.csv` (±2.5s windows)
-- **Format**: `time_ms,voltage_V,hit,layers,cum_counts,timestamp_us`
+- **Format**: `time_ms,voltage_V,hit,layers,total_hits,timestamp_us`
 
 ### Simulation Mode
 
@@ -154,7 +154,7 @@ The firmware uses windowed detection on the ADC input:
 
 - **main.cpp**: Entry point and command loop
 - **SEEs_ADC.{hpp,cpp}**: ADC driver with circular buffer integration
-- **CircularBuffer.{hpp,cpp}**: 30-second rolling buffer (6 MB RAM)
+- **CircularBuffer.{hpp,cpp}**: 30-second rolling buffer (240 KB RAM, hits-only)
 - **SnapManager.{hpp,cpp}**: ±2.5s window extraction and SD file saving
 
 ### Computer Control Scripts
@@ -268,9 +268,9 @@ The simulation and hardware-in-loop (HIL) tests use the **same interactive conso
                              ▼
                    SAME OUTPUT FORMAT
                    ├─ [SEEs] status messages
-                   ├─ Commands: on, off, snap
-                   ├─ Data: time_ms,voltage_V,hit,cum_counts
-                   └─ Snap files: SEEs.YYYYMMDD.HHMMSS.csv
+                   ├─ Commands: snap
+                   ├─ Data: time_ms,voltage_V,hit,total_hits
+                   └─ Snap files on SD: snaps/snap_NNNNN_*.csv
 ```
 
 **Key insight**: If it works in simulation, it will work on real hardware.

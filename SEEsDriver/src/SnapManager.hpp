@@ -1,8 +1,8 @@
 /**
  * @file SnapManager.hpp
- * @brief Manages snapshot capture from circular buffer
+ * @brief Manages snapshot capture from hits-only circular buffer
  *
- * Handles extraction of ±2.5s windows from the circular buffer and
+ * Handles extraction of ±2.5s hit windows from the circular buffer and
  * saves them to timestamped CSV files on SD card.
  */
 
@@ -16,7 +16,7 @@
 /**
  * @brief Manages snapshot capture and file writing
  *
- * Extracts time windows from the circular buffer and saves them
+ * Extracts hit time windows from the circular buffer and saves them
  * to discrete, timestamped CSV files on SD card.
  */
 class SnapManager {
@@ -63,14 +63,14 @@ private:
     String generateFilename(uint32_t triggerTimeUs);
 
     /**
-     * @brief Write samples to CSV file
+     * @brief Write hits to CSV file
      * @param filename Output filename
-     * @param samples Array of samples
-     * @param count Number of samples
+     * @param hits Array of hit records
+     * @param count Number of hits
      * @param triggerTimeUs Trigger timestamp for metadata
      * @return true if write successful
      */
-    bool writeSnapFile(const String& filename, DetectorSample* samples,
+    bool writeSnapFile(const String& filename, HitRecord* hits,
                        size_t count, uint32_t triggerTimeUs);
 };
 

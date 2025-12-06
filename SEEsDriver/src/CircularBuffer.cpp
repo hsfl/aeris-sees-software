@@ -1,14 +1,12 @@
 /**
  * @file CircularBuffer.cpp
- * @brief Implementation of circular buffer for SEEs detector
+ * @brief Implementation of hits-only circular buffer
  */
 
 #include "CircularBuffer.hpp"
 
-CircularBuffer::CircularBuffer(uint32_t capacitySeconds, uint32_t sampleRateHz)
-    : _buffer(nullptr), _capacity(0), _head(0), _size(0) {
-    // Calculate required capacity
-    _capacity = capacitySeconds * sampleRateHz;
+CircularBuffer::CircularBuffer(uint32_t maxHits)
+    : _buffer(nullptr), _capacity(maxHits), _head(0), _size(0) {
 }
 
 CircularBuffer::~CircularBuffer() {
@@ -19,34 +17,34 @@ CircularBuffer::~CircularBuffer() {
 }
 
 bool CircularBuffer::begin() {
-    // Allocate buffer memory
-    _buffer = new (std::nothrow) DetectorSample[_capacity];
+    _buffer = new (std::nothrow) HitRecord[_capacity];
 
     if (!_buffer) {
         Serial.println("[CircularBuffer] ERROR: Failed to allocate memory");
         Serial.print("[CircularBuffer]   Requested: ");
-        Serial.print(_capacity * sizeof(DetectorSample));
+        Serial.print(_capacity * sizeof(HitRecord));
         Serial.println(" bytes");
         return false;
     }
 
-    Serial.println("[CircularBuffer] Initialized");
+    Serial.println("[CircularBuffer] Initialized (hits-only mode)");
     Serial.print("[CircularBuffer]   Capacity: ");
     Serial.print(_capacity);
-    Serial.println(" samples");
+    Serial.println(" hits");
     Serial.print("[CircularBuffer]   Memory: ");
-    Serial.print((_capacity * sizeof(DetectorSample)) / 1024);
+    Serial.print((_capacity * sizeof(HitRecord)) / 1024);
     Serial.println(" KB");
 
     clear();
     return true;
 }
 
-void CircularBuffer::push(const DetectorSample& sample) {
+void CircularBuffer::recordHit(uint32_t timestamp_us, uint8_t layers) {
     if (!_buffer) return;
 
-    // Write sample at head position
-    _buffer[_head] = sample;
+    // Write hit at head position
+    _buffer[_head].timestamp_us = timestamp_us;
+    _buffer[_head].layers = layers;
 
     // Advance head (circular wrap)
     _head = (_head + 1) % _capacity;
@@ -58,32 +56,28 @@ void CircularBuffer::push(const DetectorSample& sample) {
 }
 
 size_t CircularBuffer::extractWindow(uint32_t centerTimeUs, float windowSeconds,
-                                     DetectorSample* outBuffer, size_t maxSamples) {
+                                     HitRecord* outBuffer, size_t maxHits) {
     if (!_buffer || !outBuffer || _size == 0) return 0;
 
     // Calculate time window bounds
     uint32_t windowUs = (uint32_t)(windowSeconds * 1000000.0f);
-    uint32_t startTimeUs = centerTimeUs - windowUs;
+    uint32_t startTimeUs = (centerTimeUs > windowUs) ? (centerTimeUs - windowUs) : 0;
     uint32_t endTimeUs = centerTimeUs + windowUs;
 
     size_t extracted = 0;
 
-    // Iterate through all valid samples in buffer
-    for (size_t i = 0; i < _size && extracted < maxSamples; i++) {
+    // Iterate through all valid hits in buffer
+    for (size_t i = 0; i < _size && extracted < maxHits; i++) {
         size_t idx = physicalIndex(i);
-        const DetectorSample& sample = _buffer[idx];
+        const HitRecord& hit = _buffer[idx];
 
-        // Check if sample falls within time window
-        if (sample.timestamp >= startTimeUs && sample.timestamp <= endTimeUs) {
-            outBuffer[extracted++] = sample;
+        // Check if hit falls within time window
+        if (hit.timestamp_us >= startTimeUs && hit.timestamp_us <= endTimeUs) {
+            outBuffer[extracted++] = hit;
         }
     }
 
     return extracted;
-}
-
-size_t CircularBuffer::size() const {
-    return _size;
 }
 
 void CircularBuffer::clear() {
@@ -91,24 +85,10 @@ void CircularBuffer::clear() {
     _size = 0;
 }
 
-float CircularBuffer::getTimeSpan() const {
-    if (_size < 2) return 0.0f;
-
-    // Get oldest and newest samples
-    size_t oldestIdx = physicalIndex(0);
-    size_t newestIdx = physicalIndex(_size - 1);
-
-    float span_us = (float)(_buffer[newestIdx].timestamp - _buffer[oldestIdx].timestamp);
-    return span_us / 1000000.0f;  // Convert to seconds
-}
-
 size_t CircularBuffer::physicalIndex(size_t logicalIndex) const {
     if (_size < _capacity) {
-        // Buffer not full yet - linear indexing
         return logicalIndex;
     } else {
-        // Buffer is full - circular indexing
-        // Oldest sample is at _head position
         return (_head + logicalIndex) % _capacity;
     }
 }

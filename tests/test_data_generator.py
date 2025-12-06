@@ -5,7 +5,7 @@ SEES Test Data Generator
 Generates realistic simulated particle detector data for testing.
 Simulates SiPM detector output with particle hit events.
 
-Data format: time_ms,voltage_V,hit,cum_counts
+Data format: time_ms,voltage_V,hit,total_hits
 
 Usage:
     python3 test_data_generator.py [--output FILE] [--duration SECONDS]
@@ -110,7 +110,7 @@ class ParticleDetectorSimulator:
             hit_rate_hz: Average particle hit rate (hits per second)
 
         Returns:
-            List of data points: [(time_ms, voltage_V, hit, cum_counts), ...]
+            List of data points: [(time_ms, voltage_V, hit, total_hits), ...]
         """
         data = []
         current_time_ms = 0.0
@@ -300,10 +300,10 @@ def write_csv(data, output_file):
 
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['time_ms', 'voltage_V', 'hit', 'cum_counts'])
+        writer.writerow(['time_ms', 'voltage_V', 'hit', 'total_hits'])
 
-        for time_ms, voltage, hit, cum_counts in data:
-            writer.writerow([f"{time_ms:.1f}", f"{voltage:.4f}", hit, cum_counts])
+        for time_ms, voltage, hit, total_hits in data:
+            writer.writerow([f"{time_ms:.1f}", f"{voltage:.4f}", hit, total_hits])
 
     print(f"✅ Generated {len(data)} samples → {output_file}")
 

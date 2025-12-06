@@ -37,7 +37,7 @@ class TestDataGeneration(unittest.TestCase):
             self.assertAlmostEqual(data1[i][0], data2[i][0], places=5)  # time_ms
             self.assertAlmostEqual(data1[i][1], data2[i][1], places=5)  # voltage
             self.assertEqual(data1[i][2], data2[i][2])  # hit
-            self.assertEqual(data1[i][3], data2[i][3])  # cum_counts
+            self.assertEqual(data1[i][3], data2[i][3])  # total_hits
 
     def test_different_seeds_produce_different_data(self):
         """Test that different seeds produce different data."""
@@ -70,10 +70,10 @@ class TestCSVDataLoading(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
             temp_path = f.name
             writer = csv.writer(f)
-            writer.writerow(['time_ms', 'voltage_V', 'hit', 'cum_counts'])
+            writer.writerow(['time_ms', 'voltage_V', 'hit', 'total_hits'])
 
-            for time_ms, voltage, hit, cum_counts in self.test_data[:10]:
-                writer.writerow([f"{time_ms:.1f}", f"{voltage:.4f}", hit, cum_counts])
+            for time_ms, voltage, hit, total_hits in self.test_data[:10]:
+                writer.writerow([f"{time_ms:.1f}", f"{voltage:.4f}", hit, total_hits])
 
         # Read it back
         with open(temp_path, 'r') as f:
@@ -84,7 +84,7 @@ class TestCSVDataLoading(unittest.TestCase):
         self.assertIn('time_ms', rows[0])
         self.assertIn('voltage_V', rows[0])
         self.assertIn('hit', rows[0])
-        self.assertIn('cum_counts', rows[0])
+        self.assertIn('total_hits', rows[0])
 
         Path(temp_path).unlink()
 
@@ -100,7 +100,7 @@ class TestDataValidation(unittest.TestCase):
         """Test that voltages are in valid ADC range (0-3.3V)."""
         data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=10.0)
 
-        for time_ms, voltage, hit, cum_counts in data:
+        for time_ms, voltage, hit, total_hits in data:
             self.assertGreaterEqual(voltage, 0.0, f"Voltage {voltage} below 0V at {time_ms}ms")
             self.assertLessEqual(voltage, 3.3, f"Voltage {voltage} above 3.3V at {time_ms}ms")
 
@@ -108,7 +108,7 @@ class TestDataValidation(unittest.TestCase):
         """Test that hit flag is always 0 or 1."""
         data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
-        for time_ms, voltage, hit, cum_counts in data:
+        for time_ms, voltage, hit, total_hits in data:
             self.assertIn(hit, [0, 1], f"Hit flag {hit} not binary at {time_ms}ms")
 
     def test_cumulative_counts_monotonic(self):
@@ -116,17 +116,17 @@ class TestDataValidation(unittest.TestCase):
         data = self.sim.generate_dataset(duration_seconds=2.0, hit_rate_hz=10.0)
 
         prev_count = 0
-        for time_ms, voltage, hit, cum_counts in data:
-            self.assertGreaterEqual(cum_counts, prev_count,
-                                    f"Counts decreased at {time_ms}ms: {prev_count} → {cum_counts}")
-            prev_count = cum_counts
+        for time_ms, voltage, hit, total_hits in data:
+            self.assertGreaterEqual(total_hits, prev_count,
+                                    f"Counts decreased at {time_ms}ms: {prev_count} → {total_hits}")
+            prev_count = total_hits
 
     def test_time_monotonic(self):
         """Test that timestamps are monotonically increasing."""
         data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         prev_time = -1
-        for time_ms, voltage, hit, cum_counts in data:
+        for time_ms, voltage, hit, total_hits in data:
             self.assertGreater(time_ms, prev_time,
                                f"Time not increasing: {prev_time} → {time_ms}")
             prev_time = time_ms

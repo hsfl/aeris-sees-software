@@ -1,13 +1,17 @@
 /**
  * @file CircularBuffer.hpp
- * @brief 30-second circular buffer for SEEs cosmic ray detection
+ * @brief Hits-only circular buffer for SEEs cosmic ray detection
  *
- * Implements a rolling FIFO buffer that continuously stores the last 30 seconds
- * of detector data, enabling "snap" extraction of ±2.5s windows around events.
+ * Stores only HIT events (not every sample) - fits in Teensy 4.1's 1MB RAM.
+ *
+ * BUFFER SIZING:
+ * - Time-based: Always keeps exactly BUFFER_DURATION_SEC (30 seconds) of data
+ * - Count limit: Max 30,000 hits to cap memory at 240 KB
+ * - Whichever limit is hit first triggers eviction
  *
  * POLICE BODY CAM ANALOGY:
- * - Buffer is always recording (started on power-up)
- * - Snap saves ±2.5s around trigger time (includes PRE-EVENT data)
+ * - Buffer always recording hits (started on power-up)
+ * - Snap saves ±2.5s of hits around trigger time (includes PRE-EVENT data)
  * - Buffer keeps rolling after snap (continuous operation)
  */
 
@@ -15,34 +19,32 @@
 #define CIRCULAR_BUFFER_HPP
 
 #include <Arduino.h>
-#include <SD.h>
 
 /**
- * @brief Sample data structure stored in circular buffer
+ * @brief Hit record - only stored when a particle is detected
+ *
+ * Compact 8-byte structure for memory efficiency.
+ * At 1000 hits/sec, 30 seconds = 240 KB (fits in 1MB RAM easily)
  */
-struct DetectorSample {
-    float time_ms;        ///< Timestamp relative to buffer start (ms)
-    float voltage;        ///< ADC voltage reading (V)
-    uint8_t hit;          ///< Hit flag (0 or 1)
-    uint8_t layers;       ///< Layer penetration count (1-4, future FPGA use)
-    uint32_t cum_counts;  ///< Cumulative hit counter
-    uint32_t timestamp;   ///< Absolute timestamp (micros())
+struct HitRecord {
+    uint32_t timestamp_us;  ///< Absolute timestamp in microseconds
+    uint8_t layers;         ///< Layer penetration count (1-4)
+    uint8_t reserved[3];    ///< Padding for alignment / future use
 };
 
 /**
- * @brief Circular buffer for continuous detector data storage
+ * @brief Circular buffer for hit events only
  *
- * Stores the last 30 seconds of detector samples in a ring buffer.
- * When buffer is full, oldest samples are overwritten by newest samples.
+ * Stores hits (not every sample) for memory efficiency.
+ * Designed to fit in Teensy 4.1's 1MB internal RAM without PSRAM.
  */
 class CircularBuffer {
 public:
     /**
      * @brief Construct circular buffer
-     * @param capacitySeconds Buffer capacity in seconds (default 30s)
-     * @param sampleRateHz Sample rate in Hz (default 10000 Hz)
+     * @param maxHits Maximum number of hits to buffer (default 30000)
      */
-    CircularBuffer(uint32_t capacitySeconds = 30, uint32_t sampleRateHz = 10000);
+    CircularBuffer(uint32_t maxHits = 30000);
 
     /**
      * @brief Destructor - cleanup allocated memory
@@ -56,61 +58,51 @@ public:
     bool begin();
 
     /**
-     * @brief Add a sample to the circular buffer
-     * @param sample Sample data to store
+     * @brief Record a hit event
+     * @param timestamp_us Timestamp in microseconds (from micros())
+     * @param layers Layer penetration count (1-4)
      */
-    void push(const DetectorSample& sample);
+    void recordHit(uint32_t timestamp_us, uint8_t layers);
 
     /**
-     * @brief Extract samples in a time window around a center point
-     * @param centerTimeUs Center time in microseconds (absolute timestamp)
+     * @brief Extract hits in a time window around a center point
+     * @param centerTimeUs Center time in microseconds
      * @param windowSeconds Window size in seconds (±windowSeconds around center)
-     * @param outBuffer Output buffer to store extracted samples
-     * @param maxSamples Maximum samples to extract
-     * @return Number of samples extracted
+     * @param outBuffer Output buffer to store extracted hits
+     * @param maxHits Maximum hits to extract
+     * @return Number of hits extracted
      */
     size_t extractWindow(uint32_t centerTimeUs, float windowSeconds,
-                         DetectorSample* outBuffer, size_t maxSamples);
+                         HitRecord* outBuffer, size_t maxHits);
 
     /**
-     * @brief Get current number of samples in buffer
-     * @return Number of valid samples (0 to capacity)
+     * @brief Get current number of hits in buffer
      */
-    size_t size() const;
+    size_t size() const { return _size; }
 
     /**
      * @brief Get buffer capacity
-     * @return Maximum number of samples buffer can hold
      */
     size_t capacity() const { return _capacity; }
 
     /**
      * @brief Check if buffer is full
-     * @return true if buffer has reached capacity
      */
     bool isFull() const { return _size >= _capacity; }
 
     /**
-     * @brief Clear all samples from buffer
+     * @brief Clear all hits from buffer
      */
     void clear();
 
-    /**
-     * @brief Get time span currently stored in buffer
-     * @return Time span in seconds (0 if empty)
-     */
-    float getTimeSpan() const;
-
 private:
-    DetectorSample* _buffer;  ///< Dynamic array for samples
-    size_t _capacity;         ///< Maximum samples buffer can hold
-    size_t _head;             ///< Write position (next sample goes here)
-    size_t _size;             ///< Current number of valid samples
+    HitRecord* _buffer;   ///< Dynamic array for hits
+    size_t _capacity;     ///< Maximum hits buffer can hold
+    size_t _head;         ///< Write position
+    size_t _size;         ///< Current number of valid hits
 
     /**
-     * @brief Get actual buffer index from logical index
-     * @param logicalIndex Logical position (0 = oldest sample)
-     * @return Physical index in _buffer array
+     * @brief Get physical index from logical index
      */
     size_t physicalIndex(size_t logicalIndex) const;
 };

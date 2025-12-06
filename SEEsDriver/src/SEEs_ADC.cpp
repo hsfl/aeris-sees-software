@@ -9,7 +9,7 @@ SEEs_ADC::SEEs_ADC(uint8_t adcPin, uint8_t ledPin)
     : _adcPin(adcPin), _ledPin(ledPin),
       _isCollecting(false), _sdAvailable(false), _armed(true), _ledState(false),
       _t0_us(0), _next_sample_us(0), _lastBlink(0), _last_hit_us(0),
-      _cum_counts(0), _lines_since_flush(0), _countsPerVolt(0),
+      _totalHits(0), _lines_since_flush(0), _countsPerVolt(0),
       _bufferFilename("buffer.csv") {}
 
 void SEEs_ADC::begin() {
@@ -45,10 +45,9 @@ void SEEs_ADC::begin() {
     // Initialize snap manager
     _snapManager.begin(_sdAvailable);
 
-    Serial.println("[SEEs] Command-based streaming mode");
-    Serial.println("[SEEs] Commands: on, off, snap");
-    Serial.println("[SEEs] Data format: time_ms,voltage_V,hit,cum_counts");
-    Serial.println("[SEEs] Circular buffer: ACTIVE (body cam mode)");
+    Serial.println("[SEEs] Body cam mode: ALWAYS streaming");
+    Serial.println("[SEEs] Commands: snap");
+    Serial.println("[SEEs] Data format: time_ms,voltage_V,hit,total_hits");
 
     // Configure ADC
     analogReadResolution(ADC_BITS);
@@ -87,38 +86,7 @@ void SEEs_ADC::processCommand(const String& cmd) {
     cmdLower.trim();
     cmdLower.toLowerCase();
 
-    if (cmdLower == "on") {
-        if (!_isCollecting) {
-            _isCollecting = true;
-            _t0_us = micros();   // Reset time origin
-            _cum_counts = 0;      // Reset counter
-            _armed = true;        // Reset detection state
-            Serial.println("[SEEs] Collection ON");
-
-            // Open rolling buffer file on SD
-            if (_sdAvailable) {
-                if (_bufferFile) _bufferFile.close();
-                if (SD.exists(_bufferFilename.c_str())) {
-                    SD.remove(_bufferFilename.c_str());
-                }
-                _bufferFile = SD.open(_bufferFilename.c_str(), FILE_WRITE);
-                if (_bufferFile) {
-                    _bufferFile.println("time_ms,voltage_V,hit,cum_counts");
-                }
-            }
-        }
-    }
-    else if (cmdLower == "off") {
-        if (_isCollecting) {
-            _isCollecting = false;
-            Serial.println("[SEEs] Collection OFF");
-            if (_bufferFile) {
-                _bufferFile.flush();
-                _bufferFile.close();
-            }
-        }
-    }
-    else if (cmdLower == "snap") {
+    if (cmdLower == "snap") {
         Serial.println("[SEEs] SNAP command received");
         uint32_t snapTime = micros();
         if (_snapManager.captureSnap(_circularBuffer, snapTime)) {
@@ -135,17 +103,12 @@ void SEEs_ADC::processCommand(const String& cmd) {
 }
 
 void SEEs_ADC::updateLED() {
-    if (_isCollecting) {
-        // Blink while collecting
-        uint32_t now = millis();
-        if (now - _lastBlink >= BLINK_MS) {
-            _ledState = !_ledState;
-            digitalWrite(_ledPin, _ledState);
-            _lastBlink = now;
-        }
-    } else {
-        // Solid ON when idle
-        digitalWrite(_ledPin, HIGH);
+    // Always blink - body cam mode is always active
+    uint32_t now = millis();
+    if (now - _lastBlink >= BLINK_MS) {
+        _ledState = !_ledState;
+        digitalWrite(_ledPin, _ledState);
+        _lastBlink = now;
     }
 }
 
@@ -165,7 +128,7 @@ void SEEs_ADC::sampleAndStream() {
         if (v >= LOWER_ENTER_V && v <= UPPER_LIMIT_V &&
             (now_us - _last_hit_us) >= REFRACT_US) {
             hit = 1;
-            ++_cum_counts;
+            ++_totalHits;
             _last_hit_us = now_us;
             _armed = false;  // Disarm until voltage drops
         }
@@ -178,34 +141,16 @@ void SEEs_ADC::sampleAndStream() {
     // Timestamp since collection started
     float t_ms = (now_us - _t0_us) / 1000.0f;
 
-    // ALWAYS push to circular buffer (body cam mode)
-    DetectorSample sample;
-    sample.time_ms = t_ms;
-    sample.voltage = v;
-    sample.hit = hit;
-    sample.layers = 1;  // Single layer for now (future: FPGA will provide multi-layer)
-    sample.cum_counts = _cum_counts;
-    sample.timestamp = now_us;
-    _circularBuffer.push(sample);
-
-    // Stream to Serial ONLY if "on" command was sent
-    if (_isCollecting) {
-        Serial.print(t_ms, 3); Serial.print(',');
-        Serial.print(v, 4);    Serial.print(',');
-        Serial.print(hit);     Serial.print(',');
-        Serial.println(_cum_counts);
-
-        // Write to SD buffer
-        if (_sdAvailable && _bufferFile) {
-            _bufferFile.print(t_ms, 3); _bufferFile.print(',');
-            _bufferFile.print(v, 4);    _bufferFile.print(',');
-            _bufferFile.print(hit);     _bufferFile.print(',');
-            _bufferFile.println(_cum_counts);
-
-            if (++_lines_since_flush >= FLUSH_EVERY) {
-                _bufferFile.flush();
-                _lines_since_flush = 0;
-            }
-        }
+    // Record hit to circular buffer ONLY when a hit is detected (body cam mode)
+    // This keeps memory usage low - only storing hits, not every sample
+    if (hit) {
+        _circularBuffer.recordHit(now_us, 1);  // layer=1 for now (future: FPGA multi-layer)
     }
+
+    // ALWAYS stream to Serial (body cam mode)
+    // Python console receives this and maintains its own circular buffer
+    Serial.print(t_ms, 3); Serial.print(',');
+    Serial.print(v, 4);    Serial.print(',');
+    Serial.print(hit);     Serial.print(',');
+    Serial.println(_totalHits);
 }
