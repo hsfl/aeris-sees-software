@@ -161,7 +161,7 @@ for test_file in test_data/sees_test_10hz.csv test_data/sees_burst_50hz.csv test
     if [ -f "$test_file" ]; then
         # Check header exists (strip CR/LF for cross-platform compatibility)
         HEADER=$(head -1 "$test_file" | tr -d '\r\n')
-        if [[ "$HEADER" != "time_ms,voltage_V,hit,cum_counts" ]]; then
+        if [[ "$HEADER" != "time_ms,voltage_V,hit,total_hits" ]]; then
             FORMAT_PASSED=0
             if [ $VERBOSE -eq 1 ]; then
                 echo "  ❌ $test_file: wrong header"

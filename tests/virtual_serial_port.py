@@ -51,19 +51,35 @@ class VirtualSEEsPort:
 
     def create_virtual_port(self):
         """Create a virtual serial port using pty."""
-        self.master_fd, self.slave_fd = pty.openpty()
+        try:
+            self.master_fd, self.slave_fd = pty.openpty()
+        except Exception as e:
+            print(f"❌ Failed to create pty: {e}", file=sys.stderr)
+            raise
 
-        # Disable echo on the slave side to prevent feedback loop
-        attrs = termios.tcgetattr(self.slave_fd)
-        attrs[3] = attrs[3] & ~termios.ECHO  # Disable ECHO flag
-        termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+        try:
+            # Disable echo on the slave side to prevent feedback loop
+            attrs = termios.tcgetattr(self.slave_fd)
+            attrs[3] = attrs[3] & ~termios.ECHO  # Disable ECHO flag
+            termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+        except Exception as e:
+            print(f"⚠️ Warning: Could not configure termios: {e}", file=sys.stderr)
 
         # Create symlink to make it accessible
-        if os.path.exists(self.port_path):
-            os.remove(self.port_path)
+        try:
+            if os.path.exists(self.port_path):
+                os.remove(self.port_path)
 
-        slave_name = os.ttyname(self.slave_fd)
-        os.symlink(slave_name, self.port_path)
+            slave_name = os.ttyname(self.slave_fd)
+            os.symlink(slave_name, self.port_path)
+        except Exception as e:
+            print(f"❌ Failed to create symlink {self.port_path}: {e}", file=sys.stderr)
+            raise
+
+        # Verify symlink was created
+        if not os.path.exists(self.port_path):
+            print(f"❌ Symlink not created: {self.port_path}", file=sys.stderr)
+            raise RuntimeError(f"Failed to create symlink: {self.port_path}")
 
         print(f"✅ Virtual SEES port created: {self.port_path}")
         print(f"   (Real device: {slave_name})")
