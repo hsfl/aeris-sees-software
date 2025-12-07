@@ -1,20 +1,22 @@
 /**
  * @file SEEs_ADC.cpp
  * @brief Implementation of SEEs ADC-based detector driver
+ *
+ * Body cam mode - always recording to RAM buffer.
+ * No SD card required.
  */
 
 #include "SEEs_ADC.hpp"
 
 SEEs_ADC::SEEs_ADC(uint8_t adcPin, uint8_t ledPin)
     : _adcPin(adcPin), _ledPin(ledPin),
-      _isCollecting(false), _sdAvailable(false), _armed(true), _ledState(false),
+      _armed(true), _ledState(false),
       _t0_us(0), _next_sample_us(0), _lastBlink(0), _last_hit_us(0),
-      _totalHits(0), _lines_since_flush(0), _countsPerVolt(0),
-      _bufferFilename("buffer.csv") {}
+      _totalHits(0), _countsPerVolt(0) {}
 
 void SEEs_ADC::begin() {
     pinMode(_ledPin, OUTPUT);
-    digitalWrite(_ledPin, HIGH);  // Solid ON when idle
+    digitalWrite(_ledPin, HIGH);  // Solid ON during init
 
     Serial.begin(115200);
     delay(500);
@@ -23,30 +25,16 @@ void SEEs_ADC::begin() {
     Serial.println("[SEEs] SEEs Particle Detector - Starting");
     Serial.println("[SEEs] ====================================");
 
-    // Try to initialize SD card
-    _sdAvailable = SD.begin(BUILTIN_SDCARD);
-    if (_sdAvailable) {
-        Serial.println("[SEEs] SD card ready");
-    } else {
-        Serial.println("[SEEs] Warning: SD card not found");
-    }
-
-    // Initialize circular buffer (always active - body cam mode)
-    Serial.println("[SEEs] Initializing circular buffer...");
-    if (!_circularBuffer.begin()) {
-        Serial.println("[SEEs] ERROR: Failed to initialize circular buffer!");
+    // Initialize RAM-based sample buffer
+    Serial.println("[SEEs] Initializing sample buffer...");
+    if (!_sampleBuffer.begin()) {
+        Serial.println("[SEEs] ERROR: Failed to allocate buffer!");
         Serial.println("[SEEs] System cannot continue - halting");
         while (1) {
             digitalWrite(_ledPin, millis() % 200 < 100);  // Fast blink = error
             delay(10);
         }
     }
-
-    // Initialize snap manager
-    _snapManager.begin(_sdAvailable);
-
-    // Initialize sample buffer (SD-based, stores ALL samples for snap)
-    _sampleBuffer.begin(_sdAvailable);
 
     Serial.println("[SEEs] Body cam mode: ALWAYS streaming");
     Serial.println("[SEEs] Commands: snap");
@@ -60,7 +48,7 @@ void SEEs_ADC::begin() {
     // Initialize timing
     _next_sample_us = micros();
     _lastBlink = millis();
-    _t0_us = micros();  // Start buffer timestamp
+    _t0_us = micros();
 
     _countsPerVolt = ADC_VREF / ((1UL << ADC_BITS) - 1UL);
 
@@ -79,8 +67,7 @@ void SEEs_ADC::update() {
     // Update LED state
     updateLED();
 
-    // ALWAYS sample into circular buffer (body cam mode)
-    // "on" command just enables Serial streaming for debugging
+    // ALWAYS sample into buffer (body cam mode)
     sampleAndStream();
 }
 
@@ -99,7 +86,7 @@ void SEEs_ADC::processCommand(const String& cmd) {
             sampleAndStream();
         }
 
-        // Output all buffered samples (exactly 5s window: 2.5s before + 2.5s after)
+        // Output all buffered samples
         _sampleBuffer.outputSnap();
         Serial.println("[SEEs] Snap complete");
     }
@@ -125,8 +112,8 @@ void SEEs_ADC::sampleAndStream() {
     if ((int32_t)(now_us - _next_sample_us) < 0) return;
     _next_sample_us += SAMPLE_US;
 
-    // Read ADC and convert to voltage
-    int raw = analogRead(_adcPin);
+    // Read ADC
+    uint16_t raw = analogRead(_adcPin);
     float v = raw * _countsPerVolt;
 
     // Windowed detection with hysteresis + refractory
@@ -145,13 +132,11 @@ void SEEs_ADC::sampleAndStream() {
         }
     }
 
-    // Timestamp since collection started
+    // Record to RAM buffer (compact format)
+    _sampleBuffer.record(raw, hit);
+
+    // Stream to Serial (body cam mode)
     float t_ms = (now_us - _t0_us) / 1000.0f;
-
-    // Record ALL samples to SD-based buffer (for snap)
-    _sampleBuffer.record(t_ms, v, hit, _totalHits);
-
-    // ALWAYS stream to Serial (body cam mode)
     Serial.print(t_ms, 3); Serial.print(',');
     Serial.print(v, 4);    Serial.print(',');
     Serial.print(hit);     Serial.print(',');
