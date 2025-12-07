@@ -427,6 +427,7 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
 
                     # Handle snap responses from Teensy
                     if '[SEEs] SNAP command received' in line_clean:
+                        snap_trigger_time = datetime.now()  # Record trigger time for filename
                         sys.stdout.write(f"\r\033[K📸 SNAP - capturing...\n")
                         sys.stdout.flush()
                         continue
@@ -441,23 +442,24 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                     # End of snap - save to file
                     if line_clean == '[SNAP_END]':
                         if capturing_snap and snap_data:
-                            snap_time = datetime.now()
+                            # Use trigger time (when snap command was sent), not end time
+                            snap_time = snap_trigger_time if snap_trigger_time else datetime.now()
                             snap_filename = f"SEEs.{snap_time.strftime('%Y%m%d.%H%M.%S')}.csv"
                             snap_path = session_dir / snap_filename
 
                             # Count hits in the data
                             hits = sum(1 for s in snap_data if len(s.split(',')) >= 3 and s.split(',')[2] == '1')
 
-                            # Calculate start/end times (±2.5s from snap time)
+                            # Calculate start/end times (-7.5s to +2.5s from trigger)
                             from datetime import timedelta
-                            start_time = snap_time - timedelta(seconds=2.5)
+                            start_time = snap_time - timedelta(seconds=7.5)
                             end_time = snap_time + timedelta(seconds=2.5)
 
                             with open(snap_path, 'w') as sf:
                                 # Header metadata matching original format
-                                sf.write(f"===SEEs SNAP START===\n")
-                                sf.write(f"Snap time: {snap_time.strftime('%Y%m%d %H:%M:%S.%f')[:-3]}\n")
-                                sf.write(f"Window: ±2.5s (5.0s total)\n")
+                                sf.write("===SEEs SNAP START===\n")
+                                sf.write(f"Trigger time: {snap_time.strftime('%Y%m%d %H:%M:%S.%f')[:-3]}\n")
+                                sf.write("Window: -7.5s to +2.5s (10.0s total)\n")
                                 sf.write(f"Start: {start_time.strftime('%H:%M:%S.%f')[:-3]}\n")
                                 sf.write(f"End:   {end_time.strftime('%H:%M:%S.%f')[:-3]}\n")
                                 sf.write(f"Frames: {len(snap_data)}\n")
