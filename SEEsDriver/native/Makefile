@@ -7,7 +7,7 @@
 #   make CXX=aarch64-linux-gnu-g++ TARGET=sees_native_arm64
 
 CXX ?= g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -static
 INCLUDES = -I. -I../src
 
 TARGET ?= sees_native
