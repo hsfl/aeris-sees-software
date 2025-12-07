@@ -441,14 +441,30 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                     # End of snap - save to file
                     if line_clean == '[SNAP_END]':
                         if capturing_snap and snap_data:
-                            snap_timestamp = datetime.now().strftime("%H%M%S")
-                            snap_filename = f"SEEs.{session_timestamp}.{snap_timestamp}.csv"
+                            snap_time = datetime.now()
+                            snap_filename = f"SEEs.{snap_time.strftime('%Y%m%d.%H%M.%S')}.csv"
                             snap_path = session_dir / snap_filename
+
+                            # Count hits in the data
+                            hits = sum(1 for s in snap_data if len(s.split(',')) >= 3 and s.split(',')[2] == '1')
+
+                            # Calculate start/end times (±2.5s from snap time)
+                            from datetime import timedelta
+                            start_time = snap_time - timedelta(seconds=2.5)
+                            end_time = snap_time + timedelta(seconds=2.5)
+
                             with open(snap_path, 'w') as sf:
+                                # Header metadata matching original format
+                                sf.write(f"===SEEs SNAP START===\n")
+                                sf.write(f"Snap time: {snap_time.strftime('%Y%m%d %H:%M:%S.%f')[:-3]}\n")
+                                sf.write(f"Window: ±2.5s (5.0s total)\n")
+                                sf.write(f"Start: {start_time.strftime('%H:%M:%S.%f')[:-3]}\n")
+                                sf.write(f"End:   {end_time.strftime('%H:%M:%S.%f')[:-3]}\n")
+                                sf.write(f"Frames: {len(snap_data)}\n")
                                 sf.write("time_ms,voltage_V,hit,total_hits\n")
                                 for sample in snap_data:
                                     sf.write(sample + '\n')
-                            sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)} samples)\n")
+                            sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)} samples, {hits} hits)\n")
                             sys.stdout.flush()
                         capturing_snap = False
                         snap_data = []

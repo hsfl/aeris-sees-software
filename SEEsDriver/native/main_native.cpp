@@ -193,7 +193,7 @@ public:
         for (size_t i = 0; i < _size; i++) {
             size_t idx = (start + i) % BUFFER_SIZE;
             Sample& s = _buffer[idx];
-            Serial.print(s.time_ms, 3); Serial.print(',');
+            Serial.print(s.time_ms, 1); Serial.print(',');
             Serial.print(s.voltage_V, 4); Serial.print(',');
             Serial.print(s.hit); Serial.print(',');
             Serial.println(s.total_hits);
