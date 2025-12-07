@@ -354,7 +354,11 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                     break
 
                 # Send to serial port (Teensy will process commands)
-                ser.write(char.encode())
+                # Convert carriage return to newline for firmware
+                if char == '\r':
+                    ser.write(b'\n')
+                else:
+                    ser.write(char.encode())
 
                 # Track input buffer (for redrawing prompt later)
                 if char == '\r':
