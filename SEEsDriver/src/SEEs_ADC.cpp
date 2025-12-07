@@ -45,6 +45,9 @@ void SEEs_ADC::begin() {
     // Initialize snap manager
     _snapManager.begin(_sdAvailable);
 
+    // Initialize sample buffer (SD-based, stores ALL samples for snap)
+    _sampleBuffer.begin(_sdAvailable);
+
     Serial.println("[SEEs] Body cam mode: ALWAYS streaming");
     Serial.println("[SEEs] Commands: snap");
     Serial.println("[SEEs] Data format: time_ms,voltage_V,hit,total_hits");
@@ -89,18 +92,16 @@ void SEEs_ADC::processCommand(const String& cmd) {
     if (cmdLower == "snap") {
         Serial.println("[SEEs] SNAP command received");
         Serial.println("[SEEs] Waiting 2.5s for post-trigger data...");
-        uint32_t snapTime = micros();
 
-        // Wait 2.5 seconds to capture post-trigger data
-        // Buffer continues recording during this delay
-        delay(2500);
-
-        if (_snapManager.captureSnap(_circularBuffer, snapTime)) {
-            Serial.print("[SEEs] Snap captured! Total snaps: ");
-            Serial.println(_snapManager.getSnapCount());
-        } else {
-            Serial.println("[SEEs] ERROR: Failed to capture snap");
+        // Continue sampling for exactly 2.5s post-trigger
+        uint32_t endTime = millis() + 2500;
+        while (millis() < endTime) {
+            sampleAndStream();
         }
+
+        // Output all buffered samples (exactly 5s window: 2.5s before + 2.5s after)
+        _sampleBuffer.outputSnap();
+        Serial.println("[SEEs] Snap complete");
     }
     else if (cmdLower.length() > 0) {
         Serial.print("[SEEs] Unknown command: ");
@@ -147,14 +148,10 @@ void SEEs_ADC::sampleAndStream() {
     // Timestamp since collection started
     float t_ms = (now_us - _t0_us) / 1000.0f;
 
-    // Record hit to circular buffer ONLY when a hit is detected (body cam mode)
-    // This keeps memory usage low - only storing hits, not every sample
-    if (hit) {
-        _circularBuffer.recordHit(now_us, 1);  // layer=1 for now (future: FPGA multi-layer)
-    }
+    // Record ALL samples to SD-based buffer (for snap)
+    _sampleBuffer.record(t_ms, v, hit, _totalHits);
 
     // ALWAYS stream to Serial (body cam mode)
-    // Python console receives this and maintains its own circular buffer
     Serial.print(t_ms, 3); Serial.print(',');
     Serial.print(v, 4);    Serial.print(',');
     Serial.print(hit);     Serial.print(',');

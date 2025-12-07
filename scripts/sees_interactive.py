@@ -316,6 +316,7 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
     # Snap capture state
     capturing_snap = False
     snap_data = []
+    snap_trigger_time = None
 
     # Line buffer for processing complete lines
     line_buffer = ""
@@ -399,6 +400,11 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                         last_data_time = current_time
                         data_count += 1
 
+                        # If capturing snap, add to snap data
+                        if capturing_snap:
+                            snap_data.append(parsed_line)
+                            continue
+
                         if not verbose:
                             if not data_streaming:
                                 data_streaming = True
@@ -425,31 +431,31 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                         sys.stdout.flush()
                         continue
 
-                    # Start capturing snap data
+                    # Start capturing snap data from firmware
                     if line_clean == '[SNAP_START]':
                         capturing_snap = True
                         snap_data = []
                         snap_count += 1
                         continue
 
-                    # End of snap data - save to file
+                    # End of snap - save to file
                     if line_clean == '[SNAP_END]':
                         if capturing_snap and snap_data:
                             snap_timestamp = datetime.now().strftime("%H%M%S")
                             snap_filename = f"SEEs.{session_timestamp}.{snap_timestamp}.csv"
                             snap_path = session_dir / snap_filename
                             with open(snap_path, 'w') as sf:
-                                for snap_line in snap_data:
-                                    sf.write(snap_line + '\n')
-                            sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)-4} hits)\n")
+                                sf.write("time_ms,voltage_V,hit,total_hits\n")
+                                for sample in snap_data:
+                                    sf.write(sample + '\n')
+                            sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)} samples)\n")
                             sys.stdout.flush()
                         capturing_snap = False
                         snap_data = []
                         continue
 
-                    # Collect snap data lines
-                    if capturing_snap:
-                        snap_data.append(line_clean)
+                    # Skip header line in snap output
+                    if line_clean == 'time_ms,voltage_V,hit,total_hits':
                         continue
 
                     if '[SEEs] Snap captured' in line_clean:

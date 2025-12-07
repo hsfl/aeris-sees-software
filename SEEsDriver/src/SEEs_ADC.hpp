@@ -13,6 +13,7 @@
 #include <SD.h>
 #include "CircularBuffer.hpp"
 #include "SnapManager.hpp"
+#include "SampleBuffer.hpp"
 
 class SEEs_ADC {
 public:
@@ -85,6 +86,7 @@ private:
     // Circular buffer and snap management
     CircularBuffer _circularBuffer;
     SnapManager _snapManager;
+    SampleBuffer _sampleBuffer;
 
     // Private methods
     void updateLED();

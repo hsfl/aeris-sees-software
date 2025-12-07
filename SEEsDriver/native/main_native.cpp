@@ -158,6 +158,58 @@ String SerialClass::readStringUntil(char terminator) {
 }
 
 // ============================================================================
+// Sample buffer for native simulation (stores ALL samples, not just hits)
+// ============================================================================
+
+struct Sample {
+    float time_ms;
+    float voltage_V;
+    uint8_t hit;
+    uint32_t total_hits;
+};
+
+class SampleBuffer {
+public:
+    static constexpr size_t BUFFER_SIZE = 50000;  // Exactly 5 seconds at 10kS/s (±2.5s window)
+
+    SampleBuffer() : _head(0), _size(0) {
+        _buffer = new Sample[BUFFER_SIZE];
+    }
+
+    ~SampleBuffer() { delete[] _buffer; }
+
+    void record(float time_ms, float voltage_V, uint8_t hit, uint32_t total_hits) {
+        _buffer[_head] = {time_ms, voltage_V, hit, total_hits};
+        _head = (_head + 1) % BUFFER_SIZE;
+        if (_size < BUFFER_SIZE) _size++;
+    }
+
+    void outputAll() {
+        Serial.println("[SNAP_START]");
+        Serial.println("time_ms,voltage_V,hit,total_hits");
+
+        // Output from oldest to newest
+        size_t start = (_size < BUFFER_SIZE) ? 0 : _head;
+        for (size_t i = 0; i < _size; i++) {
+            size_t idx = (start + i) % BUFFER_SIZE;
+            Sample& s = _buffer[idx];
+            Serial.print(s.time_ms, 3); Serial.print(',');
+            Serial.print(s.voltage_V, 4); Serial.print(',');
+            Serial.print(s.hit); Serial.print(',');
+            Serial.println(s.total_hits);
+        }
+        Serial.println("[SNAP_END]");
+    }
+
+    size_t size() const { return _size; }
+
+private:
+    Sample* _buffer;
+    size_t _head;
+    size_t _size;
+};
+
+// ============================================================================
 // Include firmware source files directly (simpler than separate compilation)
 // ============================================================================
 #include "../src/CircularBuffer.cpp"
@@ -225,16 +277,19 @@ public:
         if (cmdLower == "snap") {
             Serial.println("[SEEs] SNAP command received");
             Serial.println("[SEEs] Waiting 2.5s for post-trigger data...");
-            uint32_t snapTime = micros();
 
-            delay(2500);
-
-            if (_snapManager.captureSnap(_circularBuffer, snapTime)) {
-                Serial.print("[SEEs] Snap captured! Total snaps: ");
-                Serial.println(_snapManager.getSnapCount());
-            } else {
-                Serial.println("[SEEs] ERROR: Failed to capture snap");
+            // Continue sampling for 2.5s post-trigger
+            uint32_t endTime = millis() + 2500;
+            while (millis() < endTime) {
+                sampleAndStream();
             }
+
+            // Output all buffered samples
+            Serial.print("[SEEs] Outputting ");
+            Serial.print(_sampleBuffer.size());
+            Serial.println(" samples...");
+            _sampleBuffer.outputAll();
+            Serial.println("[SEEs] Snap complete");
         }
         else if (cmdLower.length() > 0) {
             Serial.print("[SEEs] Unknown command: ");
@@ -263,6 +318,7 @@ private:
 
     CircularBuffer _circularBuffer;
     SnapManager _snapManager;
+    SampleBuffer _sampleBuffer;
 
     void sampleAndStream() {
         uint32_t now_us = micros();
@@ -291,10 +347,8 @@ private:
 
         float t_ms = (now_us - _t0_us) / 1000.0f;
 
-        // Record hit to circular buffer
-        if (hit) {
-            _circularBuffer.recordHit(now_us, 1);
-        }
+        // Record to sample buffer (for snap)
+        _sampleBuffer.record(t_ms, v, hit, _totalHits);
 
         // Stream to "Serial" (stdout)
         Serial.print(t_ms, 3); Serial.print(',');
