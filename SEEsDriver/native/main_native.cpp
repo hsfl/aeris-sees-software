@@ -123,24 +123,37 @@ int analogRead(uint8_t) {
     return counts;
 }
 
+// Buffer for accumulating stdin input until newline
+static std::string g_inputBuffer;
+
 /**
- * @brief Serial.available() - check for command input on stdin
+ * @brief Serial.available() - check if a complete line is ready
  */
 bool SerialClass::available() {
+    // Read any available data into buffer
     struct pollfd pfd = { STDIN_FILENO, POLLIN, 0 };
-    return poll(&pfd, 1, 0) > 0;
+    while (poll(&pfd, 1, 0) > 0) {
+        char c;
+        if (read(STDIN_FILENO, &c, 1) == 1) {
+            g_inputBuffer += c;
+        } else {
+            break;
+        }
+    }
+    // Return true only if we have a complete line
+    return g_inputBuffer.find('\n') != std::string::npos;
 }
 
 /**
- * @brief Serial.readStringUntil() - read command from stdin
+ * @brief Serial.readStringUntil() - read command from buffer
  */
 String SerialClass::readStringUntil(char terminator) {
-    std::string result;
-    char c;
-    while (read(STDIN_FILENO, &c, 1) == 1) {
-        if (c == terminator) break;
-        result += c;
+    size_t pos = g_inputBuffer.find(terminator);
+    if (pos == std::string::npos) {
+        return String("");
     }
+    std::string result = g_inputBuffer.substr(0, pos);
+    g_inputBuffer.erase(0, pos + 1);
     return String(result.c_str());
 }
 
