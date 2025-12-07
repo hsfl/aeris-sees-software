@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-SEEs Interactive Console - Body Cam Mode
+SEEs Interactive Console
 
-The Teensy is ALWAYS streaming data (body cam mode).
+The Teensy streams data continuously.
 The Teensy maintains the circular buffer and saves snaps to its SD card.
-This console just logs the stream to the computer and forwards commands.
+This console logs the stream to the computer and forwards commands.
 
 Commands:
 - snap - Tell Teensy to save ±2.5s window to SD card
@@ -38,9 +38,78 @@ import time
 import os
 import stat
 import fcntl
+import subprocess
 
 # Configuration
 BAUD_RATE = 115200
+
+
+class SubprocessSerial:
+    """
+    Wrapper that provides a serial-like interface for a subprocess.
+    Used for simulation mode where we run the native binary directly.
+    """
+    def __init__(self, cmd, data_port):
+        self.proc = subprocess.Popen(
+            [cmd, data_port],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0
+        )
+        # Make stdout non-blocking
+        fd = self.proc.stdout.fileno()
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        self._buffer = b""
+
+    @property
+    def in_waiting(self):
+        """Check how many bytes are available to read"""
+        try:
+            data = self.proc.stdout.read(4096)
+            if data:
+                self._buffer += data
+        except (BlockingIOError, TypeError):
+            pass
+        return len(self._buffer)
+
+    def read(self, size=1):
+        """Read up to size bytes"""
+        try:
+            data = self.proc.stdout.read(4096)
+            if data:
+                self._buffer += data
+        except (BlockingIOError, TypeError):
+            pass
+
+        result = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return result
+
+    def write(self, data):
+        """Write to subprocess stdin"""
+        try:
+            self.proc.stdin.write(data)
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def reset_input_buffer(self):
+        """Clear the input buffer"""
+        self._buffer = b""
+        try:
+            while True:
+                data = self.proc.stdout.read(4096)
+                if not data:
+                    break
+        except (BlockingIOError, TypeError):
+            pass
+
+    def close(self):
+        """Terminate the subprocess"""
+        self.proc.terminate()
+        self.proc.wait()
 
 
 class PipeSerial:
@@ -184,8 +253,15 @@ def is_data_like(line):
     return False
 
 
-def interactive_console(port, verbose=False):
-    """Interactive console - logs stream and forwards commands to Teensy"""
+def interactive_console(port, verbose=False, native_bin=None, data_port=None):
+    """Interactive console - logs stream and forwards commands to Teensy
+
+    Args:
+        port: Serial port path or pipe path (ignored if native_bin is set)
+        verbose: Show full streaming data output
+        native_bin: Path to native binary (simulation mode)
+        data_port: Data port for native binary (e.g., /tmp/tty_sees)
+    """
 
     # Create session directory
     session_dir, session_timestamp = create_session_directory()
@@ -195,7 +271,7 @@ def interactive_console(port, verbose=False):
     stream_file_path = session_dir / stream_filename
 
     print("═══════════════════════════════════════════════════")
-    print("  SEEs Interactive Console - Body Cam Mode")
+    print("  SEEs Interactive Console")
     print("═══════════════════════════════════════════════════")
     print(f"  Port:         {port}")
     print(f"  Session dir:  {session_dir}")
@@ -210,8 +286,13 @@ def interactive_console(port, verbose=False):
         print("Use -v flag for full streaming data output")
     print()
 
-    # Open serial port or pipe
-    if is_pipe(port):
+    # Open serial port, pipe, or subprocess
+    if native_bin:
+        print(f"  (simulation mode - native binary)")
+        print(f"  Binary: {native_bin}")
+        print(f"  Data:   {data_port}")
+        ser = SubprocessSerial(native_bin, data_port)
+    elif is_pipe(port):
         print("  (simulation mode - reading from pipe)")
         ser = PipeSerial(port)
     else:
@@ -412,24 +493,38 @@ def interactive_console(port, verbose=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="SEEs Interactive Console - Body Cam Mode",
+        description="SEEs Interactive Console",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python3 sees_interactive.py /dev/ttyACM0           # Normal mode
+  python3 sees_interactive.py /dev/ttyACM0           # Normal mode (real Teensy)
   python3 sees_interactive.py /dev/ttyACM0 -v        # Verbose mode
-  python3 sees_interactive.py /tmp/tty_sees          # Simulation
+  python3 sees_interactive.py --native ~/Aeris/bin/sees_native --data /tmp/tty_sees
 
-Body cam mode: Teensy streams continuously. Snaps saved to Teensy SD card.
+Teensy streams continuously. Snaps saved to Teensy SD card.
 
 Commands:
   snap       - Capture ±2.5s window to Teensy SD card
   Ctrl+C     - Exit
         """
     )
-    parser.add_argument("port", help="Serial port (e.g., /dev/ttyACM0)")
+    parser.add_argument("port", nargs="?", default=None,
+                        help="Serial port (e.g., /dev/ttyACM0)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Show full streaming data output")
+    parser.add_argument("--native", metavar="BINARY",
+                        help="Path to native firmware binary (simulation mode)")
+    parser.add_argument("--data", metavar="PORT",
+                        help="Data port for native binary (e.g., /tmp/tty_sees)")
 
     args = parser.parse_args()
-    interactive_console(args.port, verbose=args.verbose)
+
+    if args.native:
+        if not args.data:
+            parser.error("--data is required when using --native")
+        interactive_console(None, verbose=args.verbose,
+                          native_bin=args.native, data_port=args.data)
+    elif args.port:
+        interactive_console(args.port, verbose=args.verbose)
+    else:
+        parser.error("Either PORT or --native is required")
