@@ -35,9 +35,72 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import time
+import os
+import stat
+import fcntl
 
 # Configuration
 BAUD_RATE = 115200
+
+
+class PipeSerial:
+    """
+    Wrapper that provides a serial-like interface for reading from pipes/FIFOs.
+    Used for simulation mode where native firmware writes to a named pipe.
+    """
+    def __init__(self, path):
+        self.path = path
+        self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        self._buffer = b""
+
+    @property
+    def in_waiting(self):
+        """Check how many bytes are available to read"""
+        try:
+            data = os.read(self.fd, 4096)
+            self._buffer += data
+        except BlockingIOError:
+            pass
+        return len(self._buffer)
+
+    def read(self, size=1):
+        """Read up to size bytes"""
+        # First try to fill buffer
+        try:
+            data = os.read(self.fd, 4096)
+            self._buffer += data
+        except BlockingIOError:
+            pass
+
+        # Return requested bytes from buffer
+        result = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return result
+
+    def write(self, data):
+        """Write not supported for read-only pipe"""
+        pass  # Commands go to native firmware's stdin, not back through pipe
+
+    def reset_input_buffer(self):
+        """Clear the input buffer"""
+        self._buffer = b""
+        try:
+            while True:
+                os.read(self.fd, 4096)
+        except BlockingIOError:
+            pass
+
+    def close(self):
+        """Close the file descriptor"""
+        os.close(self.fd)
+
+
+def is_pipe(path):
+    """Check if path is a named pipe (FIFO)"""
+    try:
+        return stat.S_ISFIFO(os.stat(path).st_mode)
+    except:
+        return False
 
 
 def create_session_directory():
@@ -147,8 +210,12 @@ def interactive_console(port, verbose=False):
         print("Use -v flag for full streaming data output")
     print()
 
-    # Open serial port
-    ser = serial.Serial(port, BAUD_RATE, timeout=0.1)
+    # Open serial port or pipe
+    if is_pipe(port):
+        print("  (simulation mode - reading from pipe)")
+        ser = PipeSerial(port)
+    else:
+        ser = serial.Serial(port, BAUD_RATE, timeout=0.1)
 
     # Wait for connection to stabilize and flush any initial garbage
     time.sleep(0.1)
