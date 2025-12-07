@@ -20,7 +20,7 @@ SEEs payload uses a SiPM-based particle detector connected to Teensy 4.1 microco
 The firmware handles:
 - ADC-based data acquisition from SiPM detector (10 kHz sampling)
 - Windowed particle detection with hysteresis and refractory logic
-- 30-second circular buffer (always recording, "body cam" mode)
+- 10-second circular buffer in RAM (always recording, "body cam" mode)
 - Snap capture: ±2.5s window extraction on demand
 - Command console interface via USB Serial
 - Live CSV streaming to computer
@@ -32,7 +32,7 @@ SiPM Detector (Analog)
          ↓
 Teensy 4.1 (SEEs Payload)
     ├─ ADC (A0) - 10 kHz sampling
-    ├─ SD Card (rolling buffer)
+    ├─ RAM buffer (10s rolling, 500KB)
     ├─ USB Serial (command console + data stream)
     └─ Future: UART → Artemis OBC → Radio
 
@@ -124,25 +124,27 @@ The firmware uses windowed detection on the ADC input:
 ### Data Flow
 
 **Circular Buffer (Body Cam Mode):**
+
 - Buffer starts recording on power-up (always active)
-- Stores last 30 seconds of detector data in RAM
+- Stores last 10 seconds of detector data in RAM (500KB)
 - Oldest samples automatically overwritten when full
 
 **Commands:**
 - `on` - Enable Serial CSV streaming (debugging)
 - `off` - Disable Serial streaming
-- `snap` - Save ±2.5s window to SD card (includes pre-event data!)
+- `snap` - Capture 10s window to console (includes pre-event data!)
 
 **Snap Behavior:**
-- Captures 2.5s BEFORE trigger + 2.5s after (5 seconds total)
-- Saves to: `snaps/snap_NNNNN_<timestamp>.csv`
+
+- Captures 7.5s BEFORE trigger + 2.5s after (10 seconds total)
+- Console saves to: `~/Aeris/data/sees/<session>/SEEs.<timestamp>.csv`
 - Non-blocking: buffer keeps recording during snap
 
 ### Data Output Formats
 
 - **Live CSV stream**: `time_ms,voltage_V,hit,total_hits`
-- **Snap files**: `snaps/snap_NNNNN_<timestamp>.csv` (±2.5s windows)
-- **Format**: `time_ms,voltage_V,hit,layers,total_hits,timestamp_us`
+- **Snap files**: `~/Aeris/data/sees/<session>/SEEs.<timestamp>.csv`
+- **Format**: `time_ms,voltage_V,hit,total_hits`
 
 ### Simulation Mode
 
@@ -153,22 +155,22 @@ The firmware uses windowed detection on the ADC input:
 ### Active Firmware (ADC-based)
 
 - **main.cpp**: Entry point and command loop
-- **SEEs_ADC.{hpp,cpp}**: ADC driver with circular buffer integration
-- **CircularBuffer.{hpp,cpp}**: 30-second rolling buffer (240 KB RAM, hits-only)
-- **SnapManager.{hpp,cpp}**: ±2.5s window extraction and SD file saving
+- **SEEs_ADC.{hpp,cpp}**: ADC driver with RAM buffer integration
+- **SampleBuffer.hpp**: 10-second RAM circular buffer (500KB, compact 5-byte samples)
 
 ### Computer Control Scripts
+
 - **SEEs.sh** / **SEEs.bat**: Console launchers (Linux/Mac/Windows)
 - **sees_interactive.py**: Interactive Python console with:
   - Character-by-character input forwarding
-  - Circular buffer (2.5s pre-trigger)
-  - Snap capture (±2.5s window extraction)
+  - Snap capture and file saving
   - Automatic session logging
 
 ### Hardware Configuration
+
 - **ADC (A0)**: SiPM fast-out connection (0-3.3V input)
 - **Serial (USB)**: Command console and CSV data stream at 115200 baud
-- **SD Card**: Built-in Teensy 4.1 SD interface (BUILTIN_SDCARD)
+- **RAM**: 500KB buffer in Teensy 4.1 internal RAM (no SD card required)
 
 ## Testing
 
@@ -293,8 +295,12 @@ The AERIS console provides:
 - **5) Simulation** - Virtual serial port with fake data
 - **6) HIL Test** - Real Teensy hardware
 - **7) Update Code** - Pull latest from git
-- **8) Flash Firmware** - Upload firmware to VIA or SEES
-- **9) Data Viewer** - Browse and plot captured data
+- **8) Data Viewer** - Browse and plot captured data
+- **9) HIL Deploy** - Flash firmware and run hardware tests
+
+### HIL Deploy Menu
+
+![HIL Deploy Menu](docs/aeris_hil.png "HIL Deploy - Flash and Run Hardware Tests")
 
 ### CLI Shortcuts
 
