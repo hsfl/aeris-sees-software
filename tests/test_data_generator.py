@@ -322,6 +322,7 @@ def write_csv(data, output_file, layer_counts=None):
         if layer_counts:
             summary = f"1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}"
             f.write(f"{summary}\n")
+            f.write("Layer 1: ~0.25V (20%) | Layer 2: ~0.40V (45%) | Layer 3: ~0.55V (25%) | Layer 4: ~0.70V (10%) - Proton\n")
 
         writer = csv.writer(f)
         writer.writerow(['time_ms', 'voltage_V', 'hit', 'total_hits'])

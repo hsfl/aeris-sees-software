@@ -490,6 +490,7 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                                 sf.write(f"Frames: {len(snap_data)}\n")
                                 # Layer hit summary
                                 sf.write(f"1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}\n")
+                                sf.write("Layer 1: ~0.25V (20%) | Layer 2: ~0.40V (45%) | Layer 3: ~0.55V (25%) | Layer 4: ~0.70V (10%) - Proton\n")
                                 sf.write("time_ms,voltage_V,hit,total_hits\n")
                                 for sample in snap_data:
                                     sf.write(sample + '\n')
