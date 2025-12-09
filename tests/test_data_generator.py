@@ -58,11 +58,18 @@ class ParticleDetectorSimulator:
         # Detection parameters
         self.baseline_v = 0.100
         self.noise_level_v = 0.010
-        self.pulse_peak_v = 0.500
         self.pulse_width_ms = 0.5
         self.hit_threshold_v = 0.30
         self.hit_ceiling_v = 0.80
         self.refractory_period_ms = 0.3
+
+        # Voltage peaks per layer (more layers = higher energy = higher voltage)
+        self.layer_voltages = {
+            1: 0.250,  # 1-layer: low energy
+            2: 0.400,  # 2-layer: typical cosmic ray
+            3: 0.550,  # 3-layer: high energy
+            4: 0.700,  # 4-layer: very high energy
+        }
 
         # Temporal parameters
         self.coincidence_window_ms = 0.010  # 10 µs coincidence window
@@ -81,12 +88,13 @@ class ParticleDetectorSimulator:
         """Generate baseline voltage with Gaussian noise."""
         return self.baseline_v + self.rng.gauss(0, self.noise_level_v)
 
-    def generate_particle_pulse(self, time_in_pulse_ms):
+    def generate_particle_pulse(self, time_in_pulse_ms, num_layers=2):
         """
         Generate particle pulse shape (Gaussian-like).
 
         Args:
             time_in_pulse_ms: Time since pulse start (ms)
+            num_layers: Number of layers penetrated (1-4), determines amplitude
 
         Returns:
             Voltage value for this point in the pulse
@@ -95,7 +103,9 @@ class ParticleDetectorSimulator:
         center = self.pulse_width_ms / 2
         sigma = self.pulse_width_ms / 4
 
-        amplitude = self.pulse_peak_v * self.rng.uniform(0.8, 1.2)  # Vary amplitude
+        # Amplitude based on layer penetration with small random variation
+        base_amplitude = self.layer_voltages.get(num_layers, 0.400)
+        amplitude = base_amplitude * self.rng.uniform(0.95, 1.05)
         pulse_value = amplitude * ((2.71828 ** (-((time_in_pulse_ms - center) ** 2) / (2 * sigma ** 2))))
 
         # Add baseline
@@ -110,14 +120,17 @@ class ParticleDetectorSimulator:
             hit_rate_hz: Average particle hit rate (hits per second)
 
         Returns:
-            List of data points: [(time_ms, voltage_V, hit, total_hits), ...]
+            Tuple of (data, layer_counts) where:
+            - data: List of data points: [(time_ms, voltage_V, hit, total_hits), ...]
+            - layer_counts: Dict of {1: count, 2: count, 3: count, 4: count}
         """
         data = []
         current_time_ms = 0.0
         cumulative_counts = 0
+        layer_counts = {1: 0, 2: 0, 3: 0, 4: 0}
 
-        # Generate random hit times using Poisson process
-        hit_times = []
+        # Generate random hit times and assign layer penetration using Poisson process
+        hit_events = []  # (time_ms, num_layers)
         if hit_rate_hz > 0:  # Only generate hits if rate > 0
             t = 0.0
             while t < duration_seconds * 1000:  # Convert to ms
@@ -126,11 +139,14 @@ class ParticleDetectorSimulator:
                 interval = -1000 * (1.0 / hit_rate_hz) * math.log(u) if u > 0 else float('inf')
                 t += interval
                 if t < duration_seconds * 1000:
-                    hit_times.append(t)
+                    # Assign layer penetration based on probabilities
+                    num_layers, _ = self.generate_coincidence_event(t / 1000.0)
+                    hit_events.append((t, num_layers))
 
-        hit_times.sort()
+        hit_events.sort(key=lambda x: x[0])
         hit_index = 0
         current_pulse_start = None
+        current_pulse_layers = 2  # Default
         last_hit_time = -999999  # Initialize far in past
 
         # Generate samples
@@ -139,12 +155,13 @@ class ParticleDetectorSimulator:
             current_time_ms = i * self.sample_period_ms
 
             # Check if we should start a new pulse
-            if (hit_index < len(hit_times) and
-                current_time_ms >= hit_times[hit_index] and
+            if (hit_index < len(hit_events) and
+                current_time_ms >= hit_events[hit_index][0] and
                 current_pulse_start is None and
                 current_time_ms - last_hit_time >= self.refractory_period_ms):
 
                 current_pulse_start = current_time_ms
+                current_pulse_layers = hit_events[hit_index][1]
                 hit_index += 1
 
             # Generate voltage
@@ -153,7 +170,7 @@ class ParticleDetectorSimulator:
 
                 if time_in_pulse < self.pulse_width_ms:
                     # We're in a pulse
-                    voltage = self.generate_particle_pulse(time_in_pulse)
+                    voltage = self.generate_particle_pulse(time_in_pulse, current_pulse_layers)
                 else:
                     # Pulse ended
                     current_pulse_start = None
@@ -169,11 +186,13 @@ class ParticleDetectorSimulator:
             if hit and (not data or data[-1][2] == 0):  # Rising edge
                 cumulative_counts += 1
                 last_hit_time = current_time_ms
+                # Track layer counts
+                layer_counts[current_pulse_layers] += 1
 
             # Store data point
             data.append((current_time_ms, voltage, hit, cumulative_counts))
 
-        return data
+        return data, layer_counts
 
     def generate_quiet_period(self, duration_seconds=5.0):
         """Generate data with no hits (baseline only)."""
@@ -293,12 +312,17 @@ class ParticleDetectorSimulator:
         return snap_window
 
 
-def write_csv(data, output_file):
-    """Write data to CSV file."""
+def write_csv(data, output_file, layer_counts=None):
+    """Write data to CSV file with optional layer summary."""
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, 'w', newline='') as f:
+        # Write layer summary if provided
+        if layer_counts:
+            summary = f"1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}"
+            f.write(f"{summary}\n")
+
         writer = csv.writer(f)
         writer.writerow(['time_ms', 'voltage_V', 'hit', 'total_hits'])
 
@@ -327,10 +351,10 @@ def main():
 
     # Generate data
     print(f"Generating {args.duration}s of data at {args.hit_rate} hits/s...")
-    data = sim.generate_dataset(args.duration, args.hit_rate)
+    data, layer_counts = sim.generate_dataset(args.duration, args.hit_rate)
 
     # Write to file
-    write_csv(data, args.output)
+    write_csv(data, args.output, layer_counts)
 
     # Print statistics
     total_hits = data[-1][3] if data else 0
@@ -339,6 +363,7 @@ def main():
     print(f"   Samples: {len(data)}")
     print(f"   Total hits: {total_hits}")
     print(f"   Actual rate: {total_hits / args.duration:.1f} hits/s")
+    print(f"   Layer counts: 1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}")
 
 
 if __name__ == "__main__":

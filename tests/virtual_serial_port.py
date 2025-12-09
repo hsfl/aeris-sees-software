@@ -109,7 +109,7 @@ class VirtualSEEsPort:
                     self.sample_index += 1
                 else:
                     # Generate more data when we run out
-                    self.current_data = self.simulator.generate_dataset(
+                    self.current_data, _ = self.simulator.generate_dataset(
                         duration_seconds=60.0,
                         hit_rate_hz=5.0
                     )
@@ -127,7 +127,7 @@ class VirtualSEEsPort:
 
         # Generate initial dataset
         print("📊 Generating initial data...")
-        self.current_data = self.simulator.generate_dataset(
+        self.current_data, _ = self.simulator.generate_dataset(
             duration_seconds=60.0,
             hit_rate_hz=5.0
         )

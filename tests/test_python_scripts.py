@@ -29,8 +29,8 @@ class TestDataGeneration(unittest.TestCase):
         sim1 = ParticleDetectorSimulator(seed=42)
         sim2 = ParticleDetectorSimulator(seed=42)
 
-        data1 = sim1.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
-        data2 = sim2.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data1, _ = sim1.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data2, _ = sim2.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         self.assertEqual(len(data1), len(data2))
         for i in range(min(10, len(data1))):
@@ -44,8 +44,8 @@ class TestDataGeneration(unittest.TestCase):
         sim1 = ParticleDetectorSimulator(seed=42)
         sim2 = ParticleDetectorSimulator(seed=123)
 
-        data1 = sim1.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
-        data2 = sim2.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data1, _ = sim1.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data2, _ = sim2.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         # At least some voltages should be different
         voltages_different = False
@@ -63,7 +63,7 @@ class TestCSVDataLoading(unittest.TestCase):
     def setUp(self):
         """Generate test data for each test."""
         self.sim = ParticleDetectorSimulator(seed=42)
-        self.test_data = self.sim.generate_dataset(duration_seconds=2.0, hit_rate_hz=5.0)
+        self.test_data, _ = self.sim.generate_dataset(duration_seconds=2.0, hit_rate_hz=5.0)
 
     def test_csv_format(self):
         """Test that generated data has correct CSV format."""
@@ -98,7 +98,7 @@ class TestDataValidation(unittest.TestCase):
 
     def test_voltage_in_valid_range(self):
         """Test that voltages are in valid ADC range (0-3.3V)."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=10.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=10.0)
 
         for time_ms, voltage, hit, total_hits in data:
             self.assertGreaterEqual(voltage, 0.0, f"Voltage {voltage} below 0V at {time_ms}ms")
@@ -106,14 +106,14 @@ class TestDataValidation(unittest.TestCase):
 
     def test_hit_is_binary(self):
         """Test that hit flag is always 0 or 1."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         for time_ms, voltage, hit, total_hits in data:
             self.assertIn(hit, [0, 1], f"Hit flag {hit} not binary at {time_ms}ms")
 
     def test_cumulative_counts_monotonic(self):
         """Test that cumulative counts never decrease."""
-        data = self.sim.generate_dataset(duration_seconds=2.0, hit_rate_hz=10.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=2.0, hit_rate_hz=10.0)
 
         prev_count = 0
         for time_ms, voltage, hit, total_hits in data:
@@ -123,7 +123,7 @@ class TestDataValidation(unittest.TestCase):
 
     def test_time_monotonic(self):
         """Test that timestamps are monotonically increasing."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         prev_time = -1
         for time_ms, voltage, hit, total_hits in data:
@@ -141,14 +141,14 @@ class TestHitDetection(unittest.TestCase):
 
     def test_quiet_period_has_no_hits(self):
         """Test that quiet period generates no particle hits."""
-        data = self.sim.generate_quiet_period(duration_seconds=1.0)
+        data, _ = self.sim.generate_quiet_period(duration_seconds=1.0)
 
         total_hits = data[-1][3] if data else 0
         self.assertEqual(total_hits, 0, "Quiet period should have zero hits")
 
     def test_burst_has_many_hits(self):
         """Test that burst period generates multiple hits."""
-        data = self.sim.generate_burst(duration_seconds=1.0, hit_rate_hz=50.0)
+        data, _ = self.sim.generate_burst(duration_seconds=1.0, hit_rate_hz=50.0)
 
         total_hits = data[-1][3] if data else 0
         self.assertGreater(total_hits, 10, "Burst period should have many hits")
@@ -157,7 +157,7 @@ class TestHitDetection(unittest.TestCase):
         """Test that average hit rate matches specified rate."""
         target_rate = 10.0  # hits/s
         duration = 10.0  # seconds
-        data = self.sim.generate_dataset(duration_seconds=duration, hit_rate_hz=target_rate)
+        data, _ = self.sim.generate_dataset(duration_seconds=duration, hit_rate_hz=target_rate)
 
         actual_hits = data[-1][3] if data else 0
         actual_rate = actual_hits / duration
@@ -177,7 +177,7 @@ class TestSamplingRate(unittest.TestCase):
 
     def test_sampling_interval(self):
         """Test that samples are spaced correctly (100 µs = 0.1 ms)."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=5.0)
 
         expected_interval = 0.1  # ms
         for i in range(1, min(100, len(data))):
@@ -188,7 +188,7 @@ class TestSamplingRate(unittest.TestCase):
     def test_total_duration(self):
         """Test that generated data has correct total duration."""
         duration = 5.0  # seconds
-        data = self.sim.generate_dataset(duration_seconds=duration, hit_rate_hz=5.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=duration, hit_rate_hz=5.0)
 
         expected_samples = int(duration * 10000)  # 10 kHz sampling
         actual_samples = len(data)
@@ -206,21 +206,21 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_very_short_duration(self):
         """Test generation with very short duration."""
-        data = self.sim.generate_dataset(duration_seconds=0.1, hit_rate_hz=5.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=0.1, hit_rate_hz=5.0)
 
         expected_samples = 1000  # 0.1s * 10kHz
         self.assertEqual(len(data), expected_samples)
 
     def test_zero_hit_rate(self):
         """Test generation with zero hit rate."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=0.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=0.0)
 
         total_hits = data[-1][3] if data else 0
         self.assertEqual(total_hits, 0, "Zero hit rate should produce zero hits")
 
     def test_very_high_hit_rate(self):
         """Test generation with very high hit rate."""
-        data = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=100.0)
+        data, _ = self.sim.generate_dataset(duration_seconds=1.0, hit_rate_hz=100.0)
 
         # Should still generate data without errors
         self.assertGreater(len(data), 0)

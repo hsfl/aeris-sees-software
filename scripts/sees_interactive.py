@@ -447,8 +447,33 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                             snap_filename = f"SEEs.{snap_time.strftime('%Y%m%d.%H%M.%S')}.csv"
                             snap_path = session_dir / snap_filename
 
-                            # Count hits in the data
-                            hits = sum(1 for s in snap_data if len(s.split(',')) >= 3 and s.split(',')[2] == '1')
+                            # Count hits and classify by layer based on voltage
+                            # Layer thresholds (midpoints between layer voltages):
+                            # 1-layer: ~0.25V, 2-layer: ~0.40V, 3-layer: ~0.55V, 4-layer: ~0.70V
+                            layer_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+                            prev_hit = 0
+                            for s in snap_data:
+                                parts = s.split(',')
+                                if len(parts) >= 3:
+                                    try:
+                                        voltage = float(parts[1])
+                                        hit = int(parts[2])
+                                        # Only count on rising edge (transition from 0 to 1)
+                                        if hit == 1 and prev_hit == 0:
+                                            # Classify by voltage level
+                                            if voltage < 0.325:
+                                                layer_counts[1] += 1
+                                            elif voltage < 0.475:
+                                                layer_counts[2] += 1
+                                            elif voltage < 0.625:
+                                                layer_counts[3] += 1
+                                            else:
+                                                layer_counts[4] += 1
+                                        prev_hit = hit
+                                    except ValueError:
+                                        pass
+
+                            hits = sum(layer_counts.values())
 
                             # Calculate start/end times (-7.5s to +2.5s from trigger)
                             from datetime import timedelta
@@ -463,10 +488,13 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                                 sf.write(f"Start: {start_time.strftime('%H:%M:%S.%f')[:-3]}\n")
                                 sf.write(f"End:   {end_time.strftime('%H:%M:%S.%f')[:-3]}\n")
                                 sf.write(f"Frames: {len(snap_data)}\n")
+                                # Layer hit summary
+                                sf.write(f"1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}\n")
                                 sf.write("time_ms,voltage_V,hit,total_hits\n")
                                 for sample in snap_data:
                                     sf.write(sample + '\n')
                             sys.stdout.write(f"\r\033[K✅ Snap saved: {snap_filename} ({len(snap_data)} samples, {hits} hits)\n")
+                            sys.stdout.write(f"   Layers: 1:{layer_counts[1]} 2:{layer_counts[2]} 3:{layer_counts[3]} 4:{layer_counts[4]}\n")
                             sys.stdout.flush()
                         capturing_snap = False
                         snap_data = []
