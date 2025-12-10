@@ -365,6 +365,10 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
                 if char == '\r':
                     if not data_streaming:
                         sys.stdout.write('\n')
+                    # Capture timestamp when sending snap command (for synced filenames)
+                    cmd = input_buffer.strip().lower()
+                    if cmd == 'snap':
+                        snap_trigger_time = datetime.now()
                     input_buffer = ""
                 elif char == '\x7f':  # Backspace
                     if input_buffer:
@@ -427,7 +431,7 @@ def interactive_console(port, verbose=False, native_bin=None, data_port=None):
 
                     # Handle snap responses from Teensy
                     if '[SEEs] SNAP command received' in line_clean:
-                        snap_trigger_time = datetime.now()  # Record trigger time for filename
+                        # Note: timestamp already captured when command was SENT (not here)
                         sys.stdout.write(f"\r\033[K📸 SNAP - capturing...\n")
                         sys.stdout.flush()
                         continue
